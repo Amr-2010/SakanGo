@@ -83,8 +83,10 @@ BEGIN
    SELECT org_id INTO related_org FROM crm_deals WHERE id=NEW.deal_id;
  ELSIF TG_TABLE_NAME='rent_payments' THEN
    SELECT org_id INTO related_org FROM rental_contracts WHERE id=NEW.contract_id;
- ELSIF TG_TABLE_NAME='crm_deals' AND NEW.contact_id IS NOT NULL THEN
-   SELECT org_id INTO related_org FROM crm_contacts WHERE id=NEW.contact_id;
+ ELSIF TG_TABLE_NAME='crm_deals' THEN
+   IF NEW.contact_id IS NOT NULL THEN
+     SELECT org_id INTO related_org FROM crm_contacts WHERE id=NEW.contact_id;
+   END IF;
  ELSIF TG_TABLE_NAME='maintenance_tickets' AND NEW.listing_id IS NOT NULL THEN
    SELECT org_id INTO related_org FROM listings WHERE id=NEW.listing_id;
  ELSIF TG_TABLE_NAME='rental_contracts' THEN
