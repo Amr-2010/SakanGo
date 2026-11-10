@@ -9,7 +9,8 @@ const here=path.dirname(fileURLToPath(import.meta.url));
 const publicDir=path.resolve(here,'../web');
 const prod=process.env.NODE_ENV==='production';
 const port=Number(process.env.PORT||10000);
-const demoMode=process.env.DEMO_MODE==='true';
+const demoMode=process.env.DEMO_MODE==='true' && !process.env.DATABASE_URL;
+if(process.env.DATABASE_URL && process.env.DEMO_MODE==='true')console.warn('DATABASE_URL provided: ignoring DEMO_MODE to protect persistent data.');
 const secret=process.env.JWT_SECRET || (demoMode?crypto.randomBytes(48).toString('hex'):(!prod?'development-only-change-before-deploy':null));
 if(prod && !demoMode && (!process.env.DATABASE_URL || !secret || secret.length<40 || !process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD)){
  console.error('Production requires DATABASE_URL, JWT_SECRET (40+ chars), ADMIN_EMAIL, ADMIN_PASSWORD.');process.exit(1);
@@ -87,7 +88,7 @@ async function moduleApi(req,res,route,user){
 async function api(req,res,url){
  const route=url.pathname,method=req.method,user=await principal(req);
  if(route.startsWith('/api/modules/'))return await moduleApi(req,res,route,user);
- if(route==='/api/health')return json(res,200,{ok:true,service:'SakanGo',database:pool?'postgres':'development-demo'});
+ if(route==='/api/health')return json(res,200,{ok:true,service:'SakanGo',database:pool?'postgres':'development-demo',persistent:!!pool});
  if(route==='/api/me')return json(res,200,{user:user?{...safeUser(user),permissions:{dashboard:await hasPermission(user,'dashboard_view'),reports:await hasPermission(user,'reports_view')}}:null});
 
  if(route==='/api/account/types'&&method==='GET')return json(res,200,{types:['customer','owner','agency','developer','broker','property_manager'],applicationRequired:['owner','agency','developer','broker','property_manager']});
