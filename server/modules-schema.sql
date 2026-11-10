@@ -104,3 +104,11 @@ BEGIN
    EXECUTE format('CREATE TRIGGER sakango_tenant_guard BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION sakango_check_tenant()',t);
  END LOOP;
 END $$;
+
+CREATE TABLE IF NOT EXISTS user_permissions(
+ user_id TEXT NOT NULL REFERENCES users(id),
+ permission TEXT NOT NULL CHECK(permission IN ('dashboard_view','reports_view','reports_export')),
+ granted_by TEXT NOT NULL REFERENCES users(id),
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ PRIMARY KEY(user_id,permission));
+CREATE INDEX IF NOT EXISTS idx_user_permissions_user ON user_permissions(user_id);
