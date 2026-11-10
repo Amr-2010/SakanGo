@@ -56,11 +56,35 @@ async function api(req,res,url){
  const route=url.pathname,method=req.method,user=await principal(req);
  if(route==='/api/health')return json(res,200,{ok:true,service:'SakanGo',database:pool?'postgres':'development-demo'});
  if(route==='/api/me')return json(res,200,{user:user?safeUser(user):null});
+
+ if(route==='/api/account/types'&&method==='GET')return json(res,200,{types:['customer','owner','agency','developer','broker','property_manager'],applicationRequired:['owner','agency','developer','broker','property_manager']});
+ if(route==='/api/account/apply'&&method==='POST'){
+  if(!user)throw error(401,'يجب تسجيل الدخول');
+  const d=await body(req),type=String(d.account_type||'');
+  if(!['owner','agency','developer','broker','property_manager'].includes(type))throw error(400,'نوع الحساب غير صالح');
+  if(!pool)throw error(503,'طلبات تفعيل الحسابات تحتاج قاعدة بيانات دائمة');
+  const existing=await pool.query("SELECT id FROM account_applications WHERE user_id=$1 AND requested_type=$2 AND status='pending'",[user.id,type]);
+  if(existing.rowCount)throw error(409,'لديك طلب قيد المراجعة بالفعل');
+  const item=await insert('account_applications',{id:id(),user_id:user.id,requested_type:type,status:'pending'});
+  return json(res,201,{item:{id:item.id,requested_type:item.requested_type,status:item.status}});
+ }
+ if(route==='/api/account/applications'&&method==='GET'){
+  if(!user)throw error(401,'يجب تسجيل الدخول');
+  if(!pool)throw error(503,'قاعدة البيانات الدائمة غير متصلة');
+  const items=(await pool.query('SELECT id,requested_type,status,created_at FROM account_applications WHERE user_id=$1 ORDER BY created_at DESC',[user.id])).rows;
+  return json(res,200,{items});
+ }
+ if(route==='/api/admin/account-applications'&&method==='GET'){
+  guard(user,['superadmin']);
+  if(!pool)throw error(503,'قاعدة البيانات الدائمة غير متصلة');
+  const items=(await pool.query("SELECT a.id,a.user_id,u.name,u.email,a.requested_type,a.status,a.created_at FROM account_applications a JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 100")).rows;
+  return json(res,200,{items});
+ }
  if(route==='/api/admin/identity'&&method==='GET'){guard(user,['superadmin']);return json(res,200,{superadmin:safeUser(user),database:pool?'postgres':'ephemeral-demo'});}
  if(route==='/api/auth/register'&&method==='POST'){throttle(req.socket.remoteAddress);const d=await body(req);const email=String(d.email||'').trim().toLowerCase();if(!/^\S+@\S+\.\S+$/.test(email)||String(d.password||'').length<10||String(d.name||'').trim().length<2)throw error(400,'الاسم والبريد وكلمة المرور (10 أحرف على الأقل) مطلوبة');if(await getUser(email))throw error(409,'البريد مسجل بالفعل');const u=await insert('users',{id:id(),name:String(d.name).slice(0,90),email,pass_hash:makePassword(String(d.password)),role:'customer',org_id:null});return json(res,201,{token:signToken({sub:u.id},secret),user:safeUser(u)});}
  if(route==='/api/auth/login'&&method==='POST'){throttle(req.socket.remoteAddress);const d=await body(req);const u=await getUser(String(d.email||'').trim().toLowerCase());if(!u||!checkPassword(String(d.password||''),u.pass_hash))throw error(401,'بيانات الدخول غير صحيحة');return json(res,200,{token:signToken({sub:u.id},secret),user:safeUser(u)});}
  if(route==='/api/listings'&&method==='GET'){let all=await rows('listings');all=all.filter(x=>x.status==='published'||canManage(user,x));const p=url.searchParams;const search=(p.get('search')||'').toLowerCase();const city=p.get('city')||'',kind=p.get('kind')||'',transaction=p.get('transaction')||'',max=Number(p.get('max')||0);all=all.filter(x=>(!search||[x.title,x.city,x.area].join(' ').toLowerCase().includes(search))&&(!city||x.city===city)&&(!kind||x.kind===kind)&&(!transaction||x.transaction===transaction)&&(!max||Number(x.price)<=max));return json(res,200,{items:all.sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||''))),demo:!pool});}
- if(route==='/api/listings'&&method==='POST'){guard(user,['superadmin','agency_admin','broker']);const d=await body(req),v=validListing(d);if(!v.ok)throw error(400,v.message);const obj={id:id(),org_id:user.org_id,title:d.title.trim(),city:d.city.trim(),area:d.area.trim(),price:Number(d.price),rooms:Number(d.rooms),baths:Number(d.baths),size:Number(d.size),kind:d.kind,transaction:d.transaction,image:slugSafe(d.image||''),description:String(d.description||'').slice(0,2000),status:'published'};return json(res,201,{item:await insert('listings',obj)});}
+ if(route==='/api/listings'&&method==='POST'){guard(user,['superadmin','agency_admin','broker']);const d=await body(req),v=validListing(d);if(!v.ok)throw error(400,v.message);const obj={id:id(),org_id:user.org_id,title:d.title.trim(),city:d.city.trim(),area:d.area.trim(),price:Number(d.price),rooms:Number(d.rooms),baths:Number(d.baths),size:Number(d.size),kind:d.kind,transaction:d.transaction,image:slugSafe(d.image||''),description:String(d.description||'').slice(0,2000),status:'published',created_by:user.id,owner_user_id:user.id,section:'marketplace'};return json(res,201,{item:await insert('listings',obj)});}
  const itemMatch=route.match(/^\/api\/listings\/([a-zA-Z0-9-]+)$/);
  if(itemMatch){const l=await byId('listings',itemMatch[1]);if(!l)throw error(404,'العقار غير موجود');if(method==='GET'&& (l.status==='published'||canManage(user,l)))return json(res,200,{item:l});if(method==='PATCH'){if(!canManage(user,l))throw error(403,'غير مصرح');const d=await body(req);const keys=['title','city','area','price','rooms','baths','size','kind','transaction','description','image','status'];const patch={};for(const k of keys)if(d[k]!==undefined)patch[k]=d[k];const test=validListing({...l,...patch});if(!test.ok)throw error(400,test.message);if(patch.status&&!['published','hidden'].includes(patch.status))throw error(400,'حالة غير صالحة');if('image'in patch)patch.image=slugSafe(patch.image);if('description'in patch)patch.description=String(patch.description).slice(0,2000);for(const n of ['price','rooms','baths','size'])if(n in patch)patch[n]=Number(patch[n]);return json(res,200,{item:await update('listings',l.id,patch)});}throw error(405,'الطريقة غير مدعومة');}
  if(route==='/api/favorites'&&method==='GET'){guard(user,['customer','broker','agency_admin','superadmin']);let ids=pool?(await pool.query('SELECT listing_id FROM favorites WHERE user_id=$1',[user.id])).rows.map(x=>x.listing_id):memory.favorites.filter(x=>x.user_id===user.id).map(x=>x.listing_id);return json(res,200,{ids});}
