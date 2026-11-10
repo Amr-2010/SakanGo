@@ -70,7 +70,7 @@ async function api(req,res,url){
  if(route==='/api/assistant'&&method==='POST'){const d=await body(req);const all=(await rows('listings')).filter(x=>x.status==='published');const t=String(d.message||'').slice(0,400).toLowerCase();const maxMatch=t.match(/(\d[\d,]*)\s*(?:مليون|million)/);const max=maxMatch?Number(maxMatch[1].replaceAll(',',''))*1e6:null;let picks=all.filter(x=>(!max||Number(x.price)<=max)&&(!/إيجار|rent/.test(t)||x.transaction==='إيجار')&&(!/فيلا|villa/.test(t)||x.kind==='فيلا')&&(!/شقة|apartment/.test(t)||x.kind==='شقة')).slice(0,3);return json(res,200,{message:picks.length?'لقيت لك اختيارات مبدئية حسب المعايير المكتوبة. يمكنك فتح تفاصيل كل عقار للمقارنة.':'لم أجد عقارات مطابقة حاليًا؛ جرّب توسيع شروط البحث.',items:picks,notice:'ترشيحات تجريبية بقواعد بحث، وليست نموذج ذكاء اصطناعي توليديًا.'});}
  throw error(404,'الرابط غير موجود');
 }
-const mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.json':'application/json','.webmanifest':'application/manifest+json'};
+const mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon','.json':'application/json','.webmanifest':'application/manifest+json'};
 const server=http.createServer(async(req,res)=>{
  try{
   const u=new URL(req.url,'http://localhost');
