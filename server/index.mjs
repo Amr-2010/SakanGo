@@ -36,6 +36,18 @@ CREATE TABLE IF NOT EXISTS leads(id TEXT PRIMARY KEY,listing_id TEXT NOT NULL RE
 CREATE TABLE IF NOT EXISTS appointments(id TEXT PRIMARY KEY,listing_id TEXT NOT NULL REFERENCES listings(id),user_id TEXT REFERENCES users(id),name TEXT NOT NULL,phone TEXT NOT NULL,scheduled_at TIMESTAMPTZ NOT NULL,status TEXT NOT NULL DEFAULT 'pending',created_at TIMESTAMPTZ DEFAULT now());
 CREATE TABLE IF NOT EXISTS favorites(user_id TEXT NOT NULL REFERENCES users(id),listing_id TEXT NOT NULL REFERENCES listings(id),PRIMARY KEY(user_id,listing_id));`);
   await pool.query(await fs.readFile(path.join(here,'modules-schema.sql'),'utf8'));
+  // Idempotent demonstration catalog. All records are explicitly tagged as samples.
+  // Seed only the demo organization; never overwrite actual user-created listings.
+  await pool.query("INSERT INTO organizations(id,name,organization_type,approval_status) VALUES ('demo-org','SakanGo Sample Properties','agency','approved') ON CONFLICT (id) DO NOTHING");
+  for(const item of sample){
+    await pool.query(`INSERT INTO listings
+      (id,org_id,title,city,area,price,rooms,baths,size,kind,transaction,image,description,status,section)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'published','marketplace')
+      ON CONFLICT (id) DO NOTHING`,
+      [item.id,item.org_id,item.title,item.city,item.area,item.price,item.rooms,item.baths,item.size,item.kind,item.transaction,item.image,'[بيانات تجريبية] '+item.description]);
+  }
+  console.log('SakanGo demo listings available in PostgreSQL.');
+
 }
 async function rows(table,where='',values=[]){if(pool)return (await pool.query(`SELECT * FROM ${table} ${where}`,values)).rows;return memory[table]||[];}
 async function insert(table,record){if(pool){const keys=Object.keys(record);const val=Object.values(record);let placeholders=keys.map((_,i)=>'$'+(i+1)).join(',');return (await pool.query(`INSERT INTO ${table} (${keys.join(',')}) VALUES (${placeholders}) RETURNING *`,val)).rows[0];} memory[table].push(record);return record;}
