@@ -1,0 +1,16 @@
+CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY,org_id TEXT NOT NULL REFERENCES organizations(id),name TEXT NOT NULL,city TEXT NOT NULL DEFAULT '',status TEXT NOT NULL DEFAULT 'planning',created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS project_units(id TEXT PRIMARY KEY,org_id TEXT NOT NULL REFERENCES organizations(id),project_id TEXT NOT NULL REFERENCES projects(id),unit_code TEXT NOT NULL,price NUMERIC NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'available',UNIQUE(project_id,unit_code));
+CREATE TABLE IF NOT EXISTS crm_contacts(id TEXT PRIMARY KEY,org_id TEXT NOT NULL REFERENCES organizations(id),name TEXT NOT NULL,phone TEXT NOT NULL DEFAULT '',email TEXT NOT NULL DEFAULT '',created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS crm_deals(id TEXT PRIMARY KEY,org_id TEXT NOT NULL REFERENCES organizations(id),contact_id TEXT REFERENCES crm_contacts(id),listing_id TEXT REFERENCES listings(id),assigned_to TEXT REFERENCES users(id),stage TEXT NOT NULL DEFAULT 'new',amount NUMERIC NOT NULL DEFAULT 0,created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS broker_referrals(id TEXT PRIMARY KEY,org_id TEXT NOT NULL REFERENCES organizations(id),deal_id TEXT NOT NULL REFERENCES crm_deals(id),broker_id TEXT NOT NULL REFERENCES users(id),commission_rate NUMERIC NOT NULL DEFAULT 0,commission_amount NUMERIC NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'pending',created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS rental_contracts(id TEXT PRIMARY KEY,org_id TEXT NOT NULL REFERENCES organizations(id),listing_id TEXT NOT NULL REFERENCES listings(id),tenant_name TEXT NOT NULL,start_date DATE NOT NULL,end_date DATE NOT NULL,rent_amount NUMERIC NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'draft',created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS maintenance_tickets(id TEXT PRIMARY KEY,org_id TEXT NOT NULL REFERENCES organizations(id),listing_id TEXT REFERENCES listings(id),title TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'open',created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS rent_payments(id TEXT PRIMARY KEY,org_id TEXT NOT NULL REFERENCES organizations(id),contract_id TEXT NOT NULL REFERENCES rental_contracts(id),amount NUMERIC NOT NULL,due_date DATE NOT NULL,paid_at TIMESTAMPTZ,status TEXT NOT NULL DEFAULT 'due',created_at TIMESTAMPTZ DEFAULT now());
+CREATE INDEX IF NOT EXISTS idx_projects_org ON projects(org_id);
+CREATE INDEX IF NOT EXISTS idx_units_org ON project_units(org_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_org ON crm_contacts(org_id);
+CREATE INDEX IF NOT EXISTS idx_deals_org ON crm_deals(org_id);
+CREATE INDEX IF NOT EXISTS idx_referrals_org ON broker_referrals(org_id);
+CREATE INDEX IF NOT EXISTS idx_contracts_org ON rental_contracts(org_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_org ON maintenance_tickets(org_id);
+CREATE INDEX IF NOT EXISTS idx_payments_org ON rent_payments(org_id);
