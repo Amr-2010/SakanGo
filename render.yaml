@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: sakango-web
+    runtime: node
+    plan: free
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sakango-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ALLOWED_ORIGIN
+        sync: false
+
+databases:
+  - name: sakango-db
+    plan: free
+    databaseName: sakango
+    user: sakango_app

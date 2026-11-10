@@ -1,0 +1,45 @@
+{
+  "name": "sakango",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SakanGo real estate platform — Arabic/English responsive PWA and API",
+  "scripts": {
+    "start": "node server/index.mjs",
+    "dev": "node --watch server/index.mjs",
+    "test": "node --test test/*.test.mjs",
+    "desktop": "electron desktop/main.cjs",
+    "mobile:sync": "cap sync",
+    "desktop:build": "electron-builder --win nsis",
+    "mobile:android": "npx cap add android && npx cap sync android",
+    "mobile:ios": "npx cap add ios && npx cap sync ios"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "@capacitor/cli": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/ios": "^7.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "build": {
+    "appId": "com.sakango.desktop",
+    "productName": "SakanGo",
+    "files": [
+      "desktop/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "build"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  }
+}
