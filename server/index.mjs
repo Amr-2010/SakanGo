@@ -53,7 +53,6 @@ function guard(user,roles){if(!user||!roles.includes(user.role))throw error(403,
 function canManage(user,listing){return user?.role==='superadmin'||(user && ['agency_admin','broker'].includes(user.role)&&user.org_id&&user.org_id===listing.org_id);}
 const safeUser=u=>({id:u.id,name:u.name,email:u.email,role:u.role,org_id:u.org_id});
 async function hasPermission(user,permission){if(!user)return false;if(user.role==='superadmin')return true;if(user.role==='agency_admin'&&['dashboard_view','reports_view'].includes(permission))return true;if(!pool)return false;return (await pool.query('SELECT 1 FROM user_permissions WHERE user_id=$1 AND permission=$2',[user.id,permission])).rowCount>0;}
-
 // Persistent module endpoints. Only explicitly allowed columns are accepted.
 const moduleDefinitions={
  projects:{table:'projects',required:['name'],fields:['name','city','status']},
@@ -66,310 +65,28 @@ const moduleDefinitions={
  payments:{table:'rent_payments',required:['contract_id','amount','due_date'],fields:['contract_id','amount','due_date','paid_at','status']}
 };
 async function moduleApi(req,res,route,user){
- const match=route.match(/^\/api\/modules\/([a-z]+)(?:\/([a-zA-Z0-9-]+))?$/);
- if(!match)return false;
- const cfg=moduleDefinitions[match[1]];
+ const match=route.match(/^\/api\/modules\/([a-z]+)$/),cfg=match&&moduleDefinitions[match[1]];
  if(!cfg)throw error(404,'القسم غير موجود');
  if(!user)throw error(401,'سجل الدخول أولاً');
- if(!pool)throw error(503,'تتطلب هذه الوظيفة قاعدة PostgreSQL مستقلة');
- if(!user.org_id)throw error(403,'يلزم تفعيل عضوية الشركة');
- const admin=user.role==='superadmin';
- const allowed=admin||user.role==='agency_admin'||(await pool.query("SELECT 1 FROM organization_memberships WHERE user_id=$1 AND org_id=$2 AND status='active' AND role IN ('org_admin','agent','broker','developer','property_manager')",[user.id,user.org_id])).rowCount>0;
- if(!allowed)throw error(403,'حسابك غير مفعل لإدارة بيانات الشركة');
- const org=user.org_id;
- if(req.method==='GET'&&!match[2]){
-  const items=(await pool.query('SELECT * FROM '+cfg.table+' WHERE org_id=$1 ORDER BY created_at DESC LIMIT 200',[org])).rows;
-  return json(res,200,{items});
+ if(!pool)throw error(503,'يلزم اتصال PostgreSQL');
+ if(!user.org_id)throw error(403,'لا توجد شركة مفعلة');
+ const allowed=user.role==='superadmin'||user.role==='agency_admin'||(await pool.query("SELECT 1 FROM organization_memberships WHERE user_id=$1 AND org_id=$2 AND status='active'",[user.id,user.org_id])).rowCount>0;
+ if(!allowed)throw error(403,'غير مصرح');
+ if(req.method==='GET'){
+  return json(res,200,{items:(await pool.query('SELECT * FROM '+cfg.table+' WHERE org_id=$1 ORDER BY created_at DESC LIMIT 200',[user.org_id])).rows});
  }
- if(req.method==='POST'&&!match[2]){
+ if(req.method==='POST'){
   const data=await body(req);
-  for(const k of cfg.required)if(data[k]===undefined||data[k]===null||String(data[k]).trim()==='')throw error(400,'حقل مطلوب: '+k);
-  const record={id:id(),org_id:org,created_by:user.id};
+  for(const k of cfg.required)if(!String(data[k]??'').trim())throw error(400,'مطلوب: '+k);
+  const record={id:id(),org_id:user.org_id};
   for(const k of cfg.fields)if(data[k]!==undefined){if(typeof data[k]==='object')throw error(400,'قيمة غير صالحة');record[k]=String(data[k]).slice(0,300);}
-  const item=await insert(cfg.table,record);
-  return json(res,201,{item});
+  return json(res,201,{item:await insert(cfg.table,record)});
  }
- if(req.method==='PATCH'&&match[2]){
-  const current=(await pool.query('SELECT * FROM '+cfg.table+' WHERE id=$1 AND org_id=$2',[match[2],org])).rows[0];
-  if(!current)throw error(404,'السجل غير موجود');
-  if(!admin&&user.role!=='agency_admin'&&current.created_by!==user.id)throw error(403,'لا يمكنك تعديل سجل مستخدم آخر');
-  const data=await body(req),patch={};
-  for(const k of cfg.fields)if(data[k]!==undefined){if(typeof data[k]==='object')throw error(400,'قيمة غير صالحة');patch[k]=String(data[k]).slice(0,300);}
-  if(!Object.keys(patch).length)throw error(400,'لا توجد تعديلات');
-  const keys=Object.keys(patch),values=Object.values(patch);
-  const query='UPDATE '+cfg.table+' SET '+keys.map((k,i)=>k+'=
- const route=url.pathname,method=req.method,user=await principal(req);
- if(route.startsWith('/api/modules/'))return await moduleApi(req,res,route,user);
- if(route==='/api/health')return json(res,200,{ok:true,service:'SakanGo',database:pool?'postgres':'development-demo'});
- if(route==='/api/me')return json(res,200,{user:user?{...safeUser(user),permissions:{dashboard:await hasPermission(user,'dashboard_view'),reports:await hasPermission(user,'reports_view')}}:null});
-
- if(route==='/api/account/types'&&method==='GET')return json(res,200,{types:['customer','owner','agency','developer','broker','property_manager'],applicationRequired:['owner','agency','developer','broker','property_manager']});
- if(route==='/api/account/apply'&&method==='POST'){
-  if(!user)throw error(401,'يجب تسجيل الدخول');
-  const d=await body(req),type=String(d.account_type||'');
-  if(!['owner','agency','developer','broker','property_manager'].includes(type))throw error(400,'نوع الحساب غير صالح');
-  if(!pool)throw error(503,'طلبات تفعيل الحسابات تحتاج قاعدة بيانات دائمة');
-  const existing=await pool.query("SELECT id FROM account_applications WHERE user_id=$1 AND requested_type=$2 AND status='pending'",[user.id,type]);
-  if(existing.rowCount)throw error(409,'لديك طلب قيد المراجعة بالفعل');
-  const item=await insert('account_applications',{id:id(),user_id:user.id,requested_type:type,status:'pending'});
-  return json(res,201,{item:{id:item.id,requested_type:item.requested_type,status:item.status}});
- }
- if(route==='/api/account/applications'&&method==='GET'){
-  if(!user)throw error(401,'يجب تسجيل الدخول');
-  if(!pool)throw error(503,'قاعدة البيانات الدائمة غير متصلة');
-  const items=(await pool.query('SELECT id,requested_type,status,created_at FROM account_applications WHERE user_id=$1 ORDER BY created_at DESC',[user.id])).rows;
-  return json(res,200,{items});
- }
- if(route==='/api/admin/account-applications'&&method==='GET'){
-  guard(user,['superadmin']);
-  if(!pool)throw error(503,'قاعدة البيانات الدائمة غير متصلة');
-  const items=(await pool.query("SELECT a.id,a.user_id,u.name,u.email,a.requested_type,a.status,a.created_at FROM account_applications a JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 100")).rows;
-  return json(res,200,{items});
- }
-
- if(route==='/api/admin/users'&&method==='GET'){
-  guard(user,['superadmin']);const all=await rows('users');
-  return json(res,200,{items:all.map(safeUser)});
- }
- if(route==='/api/admin/permissions'&&method==='GET'){
-  guard(user,['superadmin']);if(!pool)throw error(503,'قاعدة بيانات PostgreSQL مطلوبة');
-  const items=(await pool.query('SELECT user_id,permission,granted_by,created_at FROM user_permissions ORDER BY created_at DESC')).rows;
-  return json(res,200,{items});
- }
- if(route==='/api/admin/permissions'&&method==='POST'){
-  guard(user,['superadmin']);if(!pool)throw error(503,'قاعدة بيانات PostgreSQL مطلوبة');
-  const d=await body(req),permission=String(d.permission||''),target=await byId('users',String(d.user_id||''));
-  if(!target||!['dashboard_view','reports_view','reports_export'].includes(permission)||typeof d.enabled!=='boolean')throw error(400,'بيانات الصلاحية غير صالحة');
-  if(target.role==='superadmin')throw error(400,'صلاحيات السوبر أدمن ثابتة');
-  if(d.enabled)await pool.query('INSERT INTO user_permissions(user_id,permission,granted_by) VALUES($1,$2,$3) ON CONFLICT(user_id,permission) DO UPDATE SET granted_by=EXCLUDED.granted_by',[target.id,permission,user.id]);
-  else await pool.query('DELETE FROM user_permissions WHERE user_id=$1 AND permission=$2',[target.id,permission]);
-  return json(res,200,{ok:true});
- }
- if(route==='/api/admin/reports'&&method==='GET'){
-  if(!await hasPermission(user,'reports_view'))throw error(403,'غير مصرح بالتقارير');
-  const owned=(await rows('listings')).filter(l=>user.role==='superadmin'||(user.org_id&&l.org_id===user.org_id)||(l.created_by&&l.created_by===user.id));
-  const ids=new Set(owned.map(l=>l.id));
-  const leads=(await rows('leads')).filter(l=>ids.has(l.listing_id));
-  const appointments=(await rows('appointments')).filter(a=>ids.has(a.listing_id));
-  return json(res,200,{scope:user.role==='superadmin'?'platform':'own_organization',totals:{listings:owned.length,published:owned.filter(l=>l.status==='published').length,leads:leads.length,appointments:appointments.length},byTransaction:{sale:owned.filter(l=>l.transaction==='بيع').length,rent:owned.filter(l=>l.transaction==='إيجار').length}});
- }
- if(route==='/api/admin/identity'&&method==='GET'){guard(user,['superadmin']);return json(res,200,{superadmin:safeUser(user),database:pool?'postgres':'ephemeral-demo'});}
- if(route==='/api/auth/register'&&method==='POST'){throttle(req.socket.remoteAddress);const d=await body(req);const email=String(d.email||'').trim().toLowerCase();if(!/^\S+@\S+\.\S+$/.test(email)||String(d.password||'').length<10||String(d.name||'').trim().length<2)throw error(400,'الاسم والبريد وكلمة المرور (10 أحرف على الأقل) مطلوبة');if(await getUser(email))throw error(409,'البريد مسجل بالفعل');const accountType=String(d.account_type||'customer');if(!['customer','owner','agency','developer','broker','property_manager'].includes(accountType))throw error(400,'نوع الحساب غير صالح');const u=await insert('users',{id:id(),name:String(d.name).slice(0,90),email,pass_hash:makePassword(String(d.password)),role:'customer',org_id:null});if(pool){await insert('account_profiles',{user_id:u.id,account_type:accountType});if(accountType!=='customer')await insert('account_applications',{id:id(),user_id:u.id,requested_type:accountType,status:'pending'});}return json(res,201,{token:signToken({sub:u.id},secret),user:safeUser(u),account_type:accountType,approval_status:accountType==='customer'?'not_required':pool?'pending':'demo_not_saved'});}
- if(route==='/api/auth/login'&&method==='POST'){throttle(req.socket.remoteAddress);const d=await body(req);const u=await getUser(String(d.email||'').trim().toLowerCase());if(!u||!checkPassword(String(d.password||''),u.pass_hash))throw error(401,'بيانات الدخول غير صحيحة');return json(res,200,{token:signToken({sub:u.id},secret),user:safeUser(u)});}
- if(route==='/api/listings'&&method==='GET'){let all=await rows('listings');all=all.filter(x=>x.status==='published'||canManage(user,x));const p=url.searchParams;const search=(p.get('search')||'').toLowerCase();const city=p.get('city')||'',kind=p.get('kind')||'',transaction=p.get('transaction')||'',max=Number(p.get('max')||0);all=all.filter(x=>(!search||[x.title,x.city,x.area].join(' ').toLowerCase().includes(search))&&(!city||x.city===city)&&(!kind||x.kind===kind)&&(!transaction||x.transaction===transaction)&&(!max||Number(x.price)<=max));return json(res,200,{items:all.sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||''))),demo:!pool});}
- if(route==='/api/listings'&&method==='POST'){guard(user,['superadmin','agency_admin','broker']);const d=await body(req),v=validListing(d);if(!v.ok)throw error(400,v.message);const obj={id:id(),org_id:user.org_id,title:d.title.trim(),city:d.city.trim(),area:d.area.trim(),price:Number(d.price),rooms:Number(d.rooms),baths:Number(d.baths),size:Number(d.size),kind:d.kind,transaction:d.transaction,image:slugSafe(d.image||''),description:String(d.description||'').slice(0,2000),status:'published',created_by:user.id,owner_user_id:user.id,section:'marketplace'};return json(res,201,{item:await insert('listings',obj)});}
- const itemMatch=route.match(/^\/api\/listings\/([a-zA-Z0-9-]+)$/);
- if(itemMatch){const l=await byId('listings',itemMatch[1]);if(!l)throw error(404,'العقار غير موجود');if(method==='GET'&& (l.status==='published'||canManage(user,l)))return json(res,200,{item:l});if(method==='PATCH'){if(!canManage(user,l))throw error(403,'غير مصرح');const d=await body(req);const keys=['title','city','area','price','rooms','baths','size','kind','transaction','description','image','status'];const patch={};for(const k of keys)if(d[k]!==undefined)patch[k]=d[k];const test=validListing({...l,...patch});if(!test.ok)throw error(400,test.message);if(patch.status&&!['published','hidden'].includes(patch.status))throw error(400,'حالة غير صالحة');if('image'in patch)patch.image=slugSafe(patch.image);if('description'in patch)patch.description=String(patch.description).slice(0,2000);for(const n of ['price','rooms','baths','size'])if(n in patch)patch[n]=Number(patch[n]);return json(res,200,{item:await update('listings',l.id,patch)});}throw error(405,'الطريقة غير مدعومة');}
- if(route==='/api/favorites'&&method==='GET'){guard(user,['customer','broker','agency_admin','superadmin']);let ids=pool?(await pool.query('SELECT listing_id FROM favorites WHERE user_id=$1',[user.id])).rows.map(x=>x.listing_id):memory.favorites.filter(x=>x.user_id===user.id).map(x=>x.listing_id);return json(res,200,{ids});}
- if(route==='/api/favorites'&&method==='POST'){guard(user,['customer','broker','agency_admin','superadmin']);const d=await body(req);if(!(await byId('listings',d.listing_id)))throw error(404,'العقار غير موجود');if(pool)await pool.query('INSERT INTO favorites(user_id,listing_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[user.id,d.listing_id]);else if(!memory.favorites.some(x=>x.user_id===user.id&&x.listing_id===d.listing_id))memory.favorites.push({user_id:user.id,listing_id:d.listing_id});return json(res,200,{ok:true});}
- if(route==='/api/leads'&&method==='POST'){throttle(req.socket.remoteAddress);const d=await body(req),listing=await byId('listings',d.listing_id);if(!listing||listing.status!=='published')throw error(404,'العقار غير متاح');if(String(d.name||'').length<2||!/^[+\d\s()-]{8,22}$/.test(String(d.phone||'')))throw error(400,'الاسم ورقم هاتف صحيح مطلوبان');return json(res,201,{item:await insert('leads',{id:id(),listing_id:listing.id,user_id:user?.id||null,name:String(d.name).slice(0,90),phone:String(d.phone).slice(0,22),message:String(d.message||'').slice(0,1000),status:'new'})});}
- if(route==='/api/appointments'&&method==='POST'){throttle(req.socket.remoteAddress);const d=await body(req),listing=await byId('listings',d.listing_id);if(!listing||listing.status!=='published')throw error(404,'العقار غير متاح');const when=new Date(d.scheduled_at);if(!Number.isFinite(when.getTime())||when<Date.now())throw error(400,'اختر موعدًا مستقبليًا');if(String(d.name||'').length<2||!/^[+\d\s()-]{8,22}$/.test(String(d.phone||'')))throw error(400,'الاسم ورقم الهاتف مطلوبان');return json(res,201,{item:await insert('appointments',{id:id(),listing_id:listing.id,user_id:user?.id||null,name:String(d.name).slice(0,90),phone:String(d.phone),scheduled_at:when.toISOString(),status:'pending'})});}
- if(route==='/api/admin/summary'&&method==='GET'){if(!await hasPermission(user,'dashboard_view'))throw error(403,'غير مصرح بلوحة الإدارة');const listings=(await rows('listings')).filter(x=>canManage(user,x)||(x.created_by&&x.created_by===user.id));const listingIds=new Set(listings.map(x=>x.id));const leads=(await rows('leads')).filter(x=>listingIds.has(x.listing_id));const appointments=(await rows('appointments')).filter(x=>listingIds.has(x.listing_id));const users=user.role==='superadmin'?await rows('users'):[];return json(res,200,{listings:listings.length,leads:leads.length,appointments:appointments.length,users:users.length,recentLeads:leads.slice(-15).reverse(),recentAppointments:appointments.slice(-15).reverse()});}
- if(route==='/api/admin/staff'&&method==='POST'){guard(user,['superadmin']);const d=await body(req),email=String(d.email||'').trim().toLowerCase();if(!['agency_admin','broker'].includes(d.role)||!/^\S+@\S+\.\S+$/.test(email)||String(d.password||'').length<10||String(d.name||'').length<2)throw error(400,'البيانات غير صالحة');if(await getUser(email))throw error(409,'البريد مستخدم');let orgId=String(d.org_id||'').trim();if(!orgId){orgId=id();await insert('organizations',{id:orgId,name:String(d.organization||'New Agency').slice(0,100)});}else{let org=pool?(await pool.query('SELECT * FROM organizations WHERE id=$1',[orgId])).rows[0]:memory.organizations.find(o=>o.id===orgId);if(!org)throw error(400,'الشركة غير موجودة');}const u=await insert('users',{id:id(),name:String(d.name).slice(0,90),email,pass_hash:makePassword(String(d.password)),role:d.role,org_id:orgId});return json(res,201,{user:safeUser(u)});}
- if(route==='/api/assistant'&&method==='POST'){const d=await body(req);const all=(await rows('listings')).filter(x=>x.status==='published');const t=String(d.message||'').slice(0,400).toLowerCase();const maxMatch=t.match(/(\d[\d,]*)\s*(?:مليون|million)/);const max=maxMatch?Number(maxMatch[1].replaceAll(',',''))*1e6:null;let picks=all.filter(x=>(!max||Number(x.price)<=max)&&(!/إيجار|rent/.test(t)||x.transaction==='إيجار')&&(!/فيلا|villa/.test(t)||x.kind==='فيلا')&&(!/شقة|apartment/.test(t)||x.kind==='شقة')).slice(0,3);return json(res,200,{message:picks.length?'لقيت لك اختيارات مبدئية حسب المعايير المكتوبة. يمكنك فتح تفاصيل كل عقار للمقارنة.':'لم أجد عقارات مطابقة حاليًا؛ جرّب توسيع شروط البحث.',items:picks,notice:'ترشيحات تجريبية بقواعد بحث، وليست نموذج ذكاء اصطناعي توليديًا.'});}
- throw error(404,'الرابط غير موجود');
-}
-const mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon','.json':'application/json','.webmanifest':'application/manifest+json'};
-const server=http.createServer(async(req,res)=>{
- try{
-  const u=new URL(req.url,'http://localhost');
-  if(req.method==='OPTIONS'){res.writeHead(204,{'Allow':'GET, POST, PATCH, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'});return res.end();}
-  const origin=req.headers.origin,allowed=process.env.ALLOWED_ORIGIN;
-  if(prod&&origin&&allowed&&origin!==allowed)throw error(403,'Origin not allowed');
-  if(u.pathname.startsWith('/api/'))return await api(req,res,u);
-  if(req.method!=='GET'&&req.method!=='HEAD')throw error(405,'Method not allowed');
-  let rel=decodeURIComponent(u.pathname);if(rel==='/'||rel==='/index.html')rel='/index.html';
-  const file=path.resolve(publicDir,'.'+rel);
-  if(!file.startsWith(publicDir+path.sep))throw error(403,'Forbidden');
-  let data;try{data=await fs.readFile(file);}catch{return json(res,404,{error:'Not found'});}
-  res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; img-src 'self' https://images.unsplash.com data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"});res.end(req.method==='HEAD'?undefined:data);
- }catch(e){if((e.code||'')==='23505')return json(res,409,{error:'البيانات مسجلة بالفعل'});console.error(e.status?e.message:e);return json(res,e.status||500,{error:e.status?e.message:'خطأ داخلي في الخادم'});}
-});
-server.listen(port,'0.0.0.0',()=>console.log(`SakanGo listening on ${port} (${pool?'PostgreSQL':'local demo'})`));
-+(i+1)).join(',')+' WHERE id=
- const route=url.pathname,method=req.method,user=await principal(req);
- if(route==='/api/health')return json(res,200,{ok:true,service:'SakanGo',database:pool?'postgres':'development-demo'});
- if(route==='/api/me')return json(res,200,{user:user?{...safeUser(user),permissions:{dashboard:await hasPermission(user,'dashboard_view'),reports:await hasPermission(user,'reports_view')}}:null});
-
- if(route==='/api/account/types'&&method==='GET')return json(res,200,{types:['customer','owner','agency','developer','broker','property_manager'],applicationRequired:['owner','agency','developer','broker','property_manager']});
- if(route==='/api/account/apply'&&method==='POST'){
-  if(!user)throw error(401,'يجب تسجيل الدخول');
-  const d=await body(req),type=String(d.account_type||'');
-  if(!['owner','agency','developer','broker','property_manager'].includes(type))throw error(400,'نوع الحساب غير صالح');
-  if(!pool)throw error(503,'طلبات تفعيل الحسابات تحتاج قاعدة بيانات دائمة');
-  const existing=await pool.query("SELECT id FROM account_applications WHERE user_id=$1 AND requested_type=$2 AND status='pending'",[user.id,type]);
-  if(existing.rowCount)throw error(409,'لديك طلب قيد المراجعة بالفعل');
-  const item=await insert('account_applications',{id:id(),user_id:user.id,requested_type:type,status:'pending'});
-  return json(res,201,{item:{id:item.id,requested_type:item.requested_type,status:item.status}});
- }
- if(route==='/api/account/applications'&&method==='GET'){
-  if(!user)throw error(401,'يجب تسجيل الدخول');
-  if(!pool)throw error(503,'قاعدة البيانات الدائمة غير متصلة');
-  const items=(await pool.query('SELECT id,requested_type,status,created_at FROM account_applications WHERE user_id=$1 ORDER BY created_at DESC',[user.id])).rows;
-  return json(res,200,{items});
- }
- if(route==='/api/admin/account-applications'&&method==='GET'){
-  guard(user,['superadmin']);
-  if(!pool)throw error(503,'قاعدة البيانات الدائمة غير متصلة');
-  const items=(await pool.query("SELECT a.id,a.user_id,u.name,u.email,a.requested_type,a.status,a.created_at FROM account_applications a JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 100")).rows;
-  return json(res,200,{items});
- }
-
- if(route==='/api/admin/users'&&method==='GET'){
-  guard(user,['superadmin']);const all=await rows('users');
-  return json(res,200,{items:all.map(safeUser)});
- }
- if(route==='/api/admin/permissions'&&method==='GET'){
-  guard(user,['superadmin']);if(!pool)throw error(503,'قاعدة بيانات PostgreSQL مطلوبة');
-  const items=(await pool.query('SELECT user_id,permission,granted_by,created_at FROM user_permissions ORDER BY created_at DESC')).rows;
-  return json(res,200,{items});
- }
- if(route==='/api/admin/permissions'&&method==='POST'){
-  guard(user,['superadmin']);if(!pool)throw error(503,'قاعدة بيانات PostgreSQL مطلوبة');
-  const d=await body(req),permission=String(d.permission||''),target=await byId('users',String(d.user_id||''));
-  if(!target||!['dashboard_view','reports_view','reports_export'].includes(permission)||typeof d.enabled!=='boolean')throw error(400,'بيانات الصلاحية غير صالحة');
-  if(target.role==='superadmin')throw error(400,'صلاحيات السوبر أدمن ثابتة');
-  if(d.enabled)await pool.query('INSERT INTO user_permissions(user_id,permission,granted_by) VALUES($1,$2,$3) ON CONFLICT(user_id,permission) DO UPDATE SET granted_by=EXCLUDED.granted_by',[target.id,permission,user.id]);
-  else await pool.query('DELETE FROM user_permissions WHERE user_id=$1 AND permission=$2',[target.id,permission]);
-  return json(res,200,{ok:true});
- }
- if(route==='/api/admin/reports'&&method==='GET'){
-  if(!await hasPermission(user,'reports_view'))throw error(403,'غير مصرح بالتقارير');
-  const owned=(await rows('listings')).filter(l=>user.role==='superadmin'||(user.org_id&&l.org_id===user.org_id)||(l.created_by&&l.created_by===user.id));
-  const ids=new Set(owned.map(l=>l.id));
-  const leads=(await rows('leads')).filter(l=>ids.has(l.listing_id));
-  const appointments=(await rows('appointments')).filter(a=>ids.has(a.listing_id));
-  return json(res,200,{scope:user.role==='superadmin'?'platform':'own_organization',totals:{listings:owned.length,published:owned.filter(l=>l.status==='published').length,leads:leads.length,appointments:appointments.length},byTransaction:{sale:owned.filter(l=>l.transaction==='بيع').length,rent:owned.filter(l=>l.transaction==='إيجار').length}});
- }
- if(route==='/api/admin/identity'&&method==='GET'){guard(user,['superadmin']);return json(res,200,{superadmin:safeUser(user),database:pool?'postgres':'ephemeral-demo'});}
- if(route==='/api/auth/register'&&method==='POST'){throttle(req.socket.remoteAddress);const d=await body(req);const email=String(d.email||'').trim().toLowerCase();if(!/^\S+@\S+\.\S+$/.test(email)||String(d.password||'').length<10||String(d.name||'').trim().length<2)throw error(400,'الاسم والبريد وكلمة المرور (10 أحرف على الأقل) مطلوبة');if(await getUser(email))throw error(409,'البريد مسجل بالفعل');const accountType=String(d.account_type||'customer');if(!['customer','owner','agency','developer','broker','property_manager'].includes(accountType))throw error(400,'نوع الحساب غير صالح');const u=await insert('users',{id:id(),name:String(d.name).slice(0,90),email,pass_hash:makePassword(String(d.password)),role:'customer',org_id:null});if(pool){await insert('account_profiles',{user_id:u.id,account_type:accountType});if(accountType!=='customer')await insert('account_applications',{id:id(),user_id:u.id,requested_type:accountType,status:'pending'});}return json(res,201,{token:signToken({sub:u.id},secret),user:safeUser(u),account_type:accountType,approval_status:accountType==='customer'?'not_required':pool?'pending':'demo_not_saved'});}
- if(route==='/api/auth/login'&&method==='POST'){throttle(req.socket.remoteAddress);const d=await body(req);const u=await getUser(String(d.email||'').trim().toLowerCase());if(!u||!checkPassword(String(d.password||''),u.pass_hash))throw error(401,'بيانات الدخول غير صحيحة');return json(res,200,{token:signToken({sub:u.id},secret),user:safeUser(u)});}
- if(route==='/api/listings'&&method==='GET'){let all=await rows('listings');all=all.filter(x=>x.status==='published'||canManage(user,x));const p=url.searchParams;const search=(p.get('search')||'').toLowerCase();const city=p.get('city')||'',kind=p.get('kind')||'',transaction=p.get('transaction')||'',max=Number(p.get('max')||0);all=all.filter(x=>(!search||[x.title,x.city,x.area].join(' ').toLowerCase().includes(search))&&(!city||x.city===city)&&(!kind||x.kind===kind)&&(!transaction||x.transaction===transaction)&&(!max||Number(x.price)<=max));return json(res,200,{items:all.sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||''))),demo:!pool});}
- if(route==='/api/listings'&&method==='POST'){guard(user,['superadmin','agency_admin','broker']);const d=await body(req),v=validListing(d);if(!v.ok)throw error(400,v.message);const obj={id:id(),org_id:user.org_id,title:d.title.trim(),city:d.city.trim(),area:d.area.trim(),price:Number(d.price),rooms:Number(d.rooms),baths:Number(d.baths),size:Number(d.size),kind:d.kind,transaction:d.transaction,image:slugSafe(d.image||''),description:String(d.description||'').slice(0,2000),status:'published',created_by:user.id,owner_user_id:user.id,section:'marketplace'};return json(res,201,{item:await insert('listings',obj)});}
- const itemMatch=route.match(/^\/api\/listings\/([a-zA-Z0-9-]+)$/);
- if(itemMatch){const l=await byId('listings',itemMatch[1]);if(!l)throw error(404,'العقار غير موجود');if(method==='GET'&& (l.status==='published'||canManage(user,l)))return json(res,200,{item:l});if(method==='PATCH'){if(!canManage(user,l))throw error(403,'غير مصرح');const d=await body(req);const keys=['title','city','area','price','rooms','baths','size','kind','transaction','description','image','status'];const patch={};for(const k of keys)if(d[k]!==undefined)patch[k]=d[k];const test=validListing({...l,...patch});if(!test.ok)throw error(400,test.message);if(patch.status&&!['published','hidden'].includes(patch.status))throw error(400,'حالة غير صالحة');if('image'in patch)patch.image=slugSafe(patch.image);if('description'in patch)patch.description=String(patch.description).slice(0,2000);for(const n of ['price','rooms','baths','size'])if(n in patch)patch[n]=Number(patch[n]);return json(res,200,{item:await update('listings',l.id,patch)});}throw error(405,'الطريقة غير مدعومة');}
- if(route==='/api/favorites'&&method==='GET'){guard(user,['customer','broker','agency_admin','superadmin']);let ids=pool?(await pool.query('SELECT listing_id FROM favorites WHERE user_id=$1',[user.id])).rows.map(x=>x.listing_id):memory.favorites.filter(x=>x.user_id===user.id).map(x=>x.listing_id);return json(res,200,{ids});}
- if(route==='/api/favorites'&&method==='POST'){guard(user,['customer','broker','agency_admin','superadmin']);const d=await body(req);if(!(await byId('listings',d.listing_id)))throw error(404,'العقار غير موجود');if(pool)await pool.query('INSERT INTO favorites(user_id,listing_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[user.id,d.listing_id]);else if(!memory.favorites.some(x=>x.user_id===user.id&&x.listing_id===d.listing_id))memory.favorites.push({user_id:user.id,listing_id:d.listing_id});return json(res,200,{ok:true});}
- if(route==='/api/leads'&&method==='POST'){throttle(req.socket.remoteAddress);const d=await body(req),listing=await byId('listings',d.listing_id);if(!listing||listing.status!=='published')throw error(404,'العقار غير متاح');if(String(d.name||'').length<2||!/^[+\d\s()-]{8,22}$/.test(String(d.phone||'')))throw error(400,'الاسم ورقم هاتف صحيح مطلوبان');return json(res,201,{item:await insert('leads',{id:id(),listing_id:listing.id,user_id:user?.id||null,name:String(d.name).slice(0,90),phone:String(d.phone).slice(0,22),message:String(d.message||'').slice(0,1000),status:'new'})});}
- if(route==='/api/appointments'&&method==='POST'){throttle(req.socket.remoteAddress);const d=await body(req),listing=await byId('listings',d.listing_id);if(!listing||listing.status!=='published')throw error(404,'العقار غير متاح');const when=new Date(d.scheduled_at);if(!Number.isFinite(when.getTime())||when<Date.now())throw error(400,'اختر موعدًا مستقبليًا');if(String(d.name||'').length<2||!/^[+\d\s()-]{8,22}$/.test(String(d.phone||'')))throw error(400,'الاسم ورقم الهاتف مطلوبان');return json(res,201,{item:await insert('appointments',{id:id(),listing_id:listing.id,user_id:user?.id||null,name:String(d.name).slice(0,90),phone:String(d.phone),scheduled_at:when.toISOString(),status:'pending'})});}
- if(route==='/api/admin/summary'&&method==='GET'){if(!await hasPermission(user,'dashboard_view'))throw error(403,'غير مصرح بلوحة الإدارة');const listings=(await rows('listings')).filter(x=>canManage(user,x)||(x.created_by&&x.created_by===user.id));const listingIds=new Set(listings.map(x=>x.id));const leads=(await rows('leads')).filter(x=>listingIds.has(x.listing_id));const appointments=(await rows('appointments')).filter(x=>listingIds.has(x.listing_id));const users=user.role==='superadmin'?await rows('users'):[];return json(res,200,{listings:listings.length,leads:leads.length,appointments:appointments.length,users:users.length,recentLeads:leads.slice(-15).reverse(),recentAppointments:appointments.slice(-15).reverse()});}
- if(route==='/api/admin/staff'&&method==='POST'){guard(user,['superadmin']);const d=await body(req),email=String(d.email||'').trim().toLowerCase();if(!['agency_admin','broker'].includes(d.role)||!/^\S+@\S+\.\S+$/.test(email)||String(d.password||'').length<10||String(d.name||'').length<2)throw error(400,'البيانات غير صالحة');if(await getUser(email))throw error(409,'البريد مستخدم');let orgId=String(d.org_id||'').trim();if(!orgId){orgId=id();await insert('organizations',{id:orgId,name:String(d.organization||'New Agency').slice(0,100)});}else{let org=pool?(await pool.query('SELECT * FROM organizations WHERE id=$1',[orgId])).rows[0]:memory.organizations.find(o=>o.id===orgId);if(!org)throw error(400,'الشركة غير موجودة');}const u=await insert('users',{id:id(),name:String(d.name).slice(0,90),email,pass_hash:makePassword(String(d.password)),role:d.role,org_id:orgId});return json(res,201,{user:safeUser(u)});}
- if(route==='/api/assistant'&&method==='POST'){const d=await body(req);const all=(await rows('listings')).filter(x=>x.status==='published');const t=String(d.message||'').slice(0,400).toLowerCase();const maxMatch=t.match(/(\d[\d,]*)\s*(?:مليون|million)/);const max=maxMatch?Number(maxMatch[1].replaceAll(',',''))*1e6:null;let picks=all.filter(x=>(!max||Number(x.price)<=max)&&(!/إيجار|rent/.test(t)||x.transaction==='إيجار')&&(!/فيلا|villa/.test(t)||x.kind==='فيلا')&&(!/شقة|apartment/.test(t)||x.kind==='شقة')).slice(0,3);return json(res,200,{message:picks.length?'لقيت لك اختيارات مبدئية حسب المعايير المكتوبة. يمكنك فتح تفاصيل كل عقار للمقارنة.':'لم أجد عقارات مطابقة حاليًا؛ جرّب توسيع شروط البحث.',items:picks,notice:'ترشيحات تجريبية بقواعد بحث، وليست نموذج ذكاء اصطناعي توليديًا.'});}
- throw error(404,'الرابط غير موجود');
-}
-const mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon','.json':'application/json','.webmanifest':'application/manifest+json'};
-const server=http.createServer(async(req,res)=>{
- try{
-  const u=new URL(req.url,'http://localhost');
-  if(req.method==='OPTIONS'){res.writeHead(204,{'Allow':'GET, POST, PATCH, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'});return res.end();}
-  const origin=req.headers.origin,allowed=process.env.ALLOWED_ORIGIN;
-  if(prod&&origin&&allowed&&origin!==allowed)throw error(403,'Origin not allowed');
-  if(u.pathname.startsWith('/api/'))return await api(req,res,u);
-  if(req.method!=='GET'&&req.method!=='HEAD')throw error(405,'Method not allowed');
-  let rel=decodeURIComponent(u.pathname);if(rel==='/'||rel==='/index.html')rel='/index.html';
-  const file=path.resolve(publicDir,'.'+rel);
-  if(!file.startsWith(publicDir+path.sep))throw error(403,'Forbidden');
-  let data;try{data=await fs.readFile(file);}catch{return json(res,404,{error:'Not found'});}
-  res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; img-src 'self' https://images.unsplash.com data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"});res.end(req.method==='HEAD'?undefined:data);
- }catch(e){if((e.code||'')==='23505')return json(res,409,{error:'البيانات مسجلة بالفعل'});console.error(e.status?e.message:e);return json(res,e.status||500,{error:e.status?e.message:'خطأ داخلي في الخادم'});}
-});
-server.listen(port,'0.0.0.0',()=>console.log(`SakanGo listening on ${port} (${pool?'PostgreSQL':'local demo'})`));
-+(keys.length+1)+' AND org_id=
- const route=url.pathname,method=req.method,user=await principal(req);
- if(route==='/api/health')return json(res,200,{ok:true,service:'SakanGo',database:pool?'postgres':'development-demo'});
- if(route==='/api/me')return json(res,200,{user:user?{...safeUser(user),permissions:{dashboard:await hasPermission(user,'dashboard_view'),reports:await hasPermission(user,'reports_view')}}:null});
-
- if(route==='/api/account/types'&&method==='GET')return json(res,200,{types:['customer','owner','agency','developer','broker','property_manager'],applicationRequired:['owner','agency','developer','broker','property_manager']});
- if(route==='/api/account/apply'&&method==='POST'){
-  if(!user)throw error(401,'يجب تسجيل الدخول');
-  const d=await body(req),type=String(d.account_type||'');
-  if(!['owner','agency','developer','broker','property_manager'].includes(type))throw error(400,'نوع الحساب غير صالح');
-  if(!pool)throw error(503,'طلبات تفعيل الحسابات تحتاج قاعدة بيانات دائمة');
-  const existing=await pool.query("SELECT id FROM account_applications WHERE user_id=$1 AND requested_type=$2 AND status='pending'",[user.id,type]);
-  if(existing.rowCount)throw error(409,'لديك طلب قيد المراجعة بالفعل');
-  const item=await insert('account_applications',{id:id(),user_id:user.id,requested_type:type,status:'pending'});
-  return json(res,201,{item:{id:item.id,requested_type:item.requested_type,status:item.status}});
- }
- if(route==='/api/account/applications'&&method==='GET'){
-  if(!user)throw error(401,'يجب تسجيل الدخول');
-  if(!pool)throw error(503,'قاعدة البيانات الدائمة غير متصلة');
-  const items=(await pool.query('SELECT id,requested_type,status,created_at FROM account_applications WHERE user_id=$1 ORDER BY created_at DESC',[user.id])).rows;
-  return json(res,200,{items});
- }
- if(route==='/api/admin/account-applications'&&method==='GET'){
-  guard(user,['superadmin']);
-  if(!pool)throw error(503,'قاعدة البيانات الدائمة غير متصلة');
-  const items=(await pool.query("SELECT a.id,a.user_id,u.name,u.email,a.requested_type,a.status,a.created_at FROM account_applications a JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 100")).rows;
-  return json(res,200,{items});
- }
-
- if(route==='/api/admin/users'&&method==='GET'){
-  guard(user,['superadmin']);const all=await rows('users');
-  return json(res,200,{items:all.map(safeUser)});
- }
- if(route==='/api/admin/permissions'&&method==='GET'){
-  guard(user,['superadmin']);if(!pool)throw error(503,'قاعدة بيانات PostgreSQL مطلوبة');
-  const items=(await pool.query('SELECT user_id,permission,granted_by,created_at FROM user_permissions ORDER BY created_at DESC')).rows;
-  return json(res,200,{items});
- }
- if(route==='/api/admin/permissions'&&method==='POST'){
-  guard(user,['superadmin']);if(!pool)throw error(503,'قاعدة بيانات PostgreSQL مطلوبة');
-  const d=await body(req),permission=String(d.permission||''),target=await byId('users',String(d.user_id||''));
-  if(!target||!['dashboard_view','reports_view','reports_export'].includes(permission)||typeof d.enabled!=='boolean')throw error(400,'بيانات الصلاحية غير صالحة');
-  if(target.role==='superadmin')throw error(400,'صلاحيات السوبر أدمن ثابتة');
-  if(d.enabled)await pool.query('INSERT INTO user_permissions(user_id,permission,granted_by) VALUES($1,$2,$3) ON CONFLICT(user_id,permission) DO UPDATE SET granted_by=EXCLUDED.granted_by',[target.id,permission,user.id]);
-  else await pool.query('DELETE FROM user_permissions WHERE user_id=$1 AND permission=$2',[target.id,permission]);
-  return json(res,200,{ok:true});
- }
- if(route==='/api/admin/reports'&&method==='GET'){
-  if(!await hasPermission(user,'reports_view'))throw error(403,'غير مصرح بالتقارير');
-  const owned=(await rows('listings')).filter(l=>user.role==='superadmin'||(user.org_id&&l.org_id===user.org_id)||(l.created_by&&l.created_by===user.id));
-  const ids=new Set(owned.map(l=>l.id));
-  const leads=(await rows('leads')).filter(l=>ids.has(l.listing_id));
-  const appointments=(await rows('appointments')).filter(a=>ids.has(a.listing_id));
-  return json(res,200,{scope:user.role==='superadmin'?'platform':'own_organization',totals:{listings:owned.length,published:owned.filter(l=>l.status==='published').length,leads:leads.length,appointments:appointments.length},byTransaction:{sale:owned.filter(l=>l.transaction==='بيع').length,rent:owned.filter(l=>l.transaction==='إيجار').length}});
- }
- if(route==='/api/admin/identity'&&method==='GET'){guard(user,['superadmin']);return json(res,200,{superadmin:safeUser(user),database:pool?'postgres':'ephemeral-demo'});}
- if(route==='/api/auth/register'&&method==='POST'){throttle(req.socket.remoteAddress);const d=await body(req);const email=String(d.email||'').trim().toLowerCase();if(!/^\S+@\S+\.\S+$/.test(email)||String(d.password||'').length<10||String(d.name||'').trim().length<2)throw error(400,'الاسم والبريد وكلمة المرور (10 أحرف على الأقل) مطلوبة');if(await getUser(email))throw error(409,'البريد مسجل بالفعل');const accountType=String(d.account_type||'customer');if(!['customer','owner','agency','developer','broker','property_manager'].includes(accountType))throw error(400,'نوع الحساب غير صالح');const u=await insert('users',{id:id(),name:String(d.name).slice(0,90),email,pass_hash:makePassword(String(d.password)),role:'customer',org_id:null});if(pool){await insert('account_profiles',{user_id:u.id,account_type:accountType});if(accountType!=='customer')await insert('account_applications',{id:id(),user_id:u.id,requested_type:accountType,status:'pending'});}return json(res,201,{token:signToken({sub:u.id},secret),user:safeUser(u),account_type:accountType,approval_status:accountType==='customer'?'not_required':pool?'pending':'demo_not_saved'});}
- if(route==='/api/auth/login'&&method==='POST'){throttle(req.socket.remoteAddress);const d=await body(req);const u=await getUser(String(d.email||'').trim().toLowerCase());if(!u||!checkPassword(String(d.password||''),u.pass_hash))throw error(401,'بيانات الدخول غير صحيحة');return json(res,200,{token:signToken({sub:u.id},secret),user:safeUser(u)});}
- if(route==='/api/listings'&&method==='GET'){let all=await rows('listings');all=all.filter(x=>x.status==='published'||canManage(user,x));const p=url.searchParams;const search=(p.get('search')||'').toLowerCase();const city=p.get('city')||'',kind=p.get('kind')||'',transaction=p.get('transaction')||'',max=Number(p.get('max')||0);all=all.filter(x=>(!search||[x.title,x.city,x.area].join(' ').toLowerCase().includes(search))&&(!city||x.city===city)&&(!kind||x.kind===kind)&&(!transaction||x.transaction===transaction)&&(!max||Number(x.price)<=max));return json(res,200,{items:all.sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||''))),demo:!pool});}
- if(route==='/api/listings'&&method==='POST'){guard(user,['superadmin','agency_admin','broker']);const d=await body(req),v=validListing(d);if(!v.ok)throw error(400,v.message);const obj={id:id(),org_id:user.org_id,title:d.title.trim(),city:d.city.trim(),area:d.area.trim(),price:Number(d.price),rooms:Number(d.rooms),baths:Number(d.baths),size:Number(d.size),kind:d.kind,transaction:d.transaction,image:slugSafe(d.image||''),description:String(d.description||'').slice(0,2000),status:'published',created_by:user.id,owner_user_id:user.id,section:'marketplace'};return json(res,201,{item:await insert('listings',obj)});}
- const itemMatch=route.match(/^\/api\/listings\/([a-zA-Z0-9-]+)$/);
- if(itemMatch){const l=await byId('listings',itemMatch[1]);if(!l)throw error(404,'العقار غير موجود');if(method==='GET'&& (l.status==='published'||canManage(user,l)))return json(res,200,{item:l});if(method==='PATCH'){if(!canManage(user,l))throw error(403,'غير مصرح');const d=await body(req);const keys=['title','city','area','price','rooms','baths','size','kind','transaction','description','image','status'];const patch={};for(const k of keys)if(d[k]!==undefined)patch[k]=d[k];const test=validListing({...l,...patch});if(!test.ok)throw error(400,test.message);if(patch.status&&!['published','hidden'].includes(patch.status))throw error(400,'حالة غير صالحة');if('image'in patch)patch.image=slugSafe(patch.image);if('description'in patch)patch.description=String(patch.description).slice(0,2000);for(const n of ['price','rooms','baths','size'])if(n in patch)patch[n]=Number(patch[n]);return json(res,200,{item:await update('listings',l.id,patch)});}throw error(405,'الطريقة غير مدعومة');}
- if(route==='/api/favorites'&&method==='GET'){guard(user,['customer','broker','agency_admin','superadmin']);let ids=pool?(await pool.query('SELECT listing_id FROM favorites WHERE user_id=$1',[user.id])).rows.map(x=>x.listing_id):memory.favorites.filter(x=>x.user_id===user.id).map(x=>x.listing_id);return json(res,200,{ids});}
- if(route==='/api/favorites'&&method==='POST'){guard(user,['customer','broker','agency_admin','superadmin']);const d=await body(req);if(!(await byId('listings',d.listing_id)))throw error(404,'العقار غير موجود');if(pool)await pool.query('INSERT INTO favorites(user_id,listing_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[user.id,d.listing_id]);else if(!memory.favorites.some(x=>x.user_id===user.id&&x.listing_id===d.listing_id))memory.favorites.push({user_id:user.id,listing_id:d.listing_id});return json(res,200,{ok:true});}
- if(route==='/api/leads'&&method==='POST'){throttle(req.socket.remoteAddress);const d=await body(req),listing=await byId('listings',d.listing_id);if(!listing||listing.status!=='published')throw error(404,'العقار غير متاح');if(String(d.name||'').length<2||!/^[+\d\s()-]{8,22}$/.test(String(d.phone||'')))throw error(400,'الاسم ورقم هاتف صحيح مطلوبان');return json(res,201,{item:await insert('leads',{id:id(),listing_id:listing.id,user_id:user?.id||null,name:String(d.name).slice(0,90),phone:String(d.phone).slice(0,22),message:String(d.message||'').slice(0,1000),status:'new'})});}
- if(route==='/api/appointments'&&method==='POST'){throttle(req.socket.remoteAddress);const d=await body(req),listing=await byId('listings',d.listing_id);if(!listing||listing.status!=='published')throw error(404,'العقار غير متاح');const when=new Date(d.scheduled_at);if(!Number.isFinite(when.getTime())||when<Date.now())throw error(400,'اختر موعدًا مستقبليًا');if(String(d.name||'').length<2||!/^[+\d\s()-]{8,22}$/.test(String(d.phone||'')))throw error(400,'الاسم ورقم الهاتف مطلوبان');return json(res,201,{item:await insert('appointments',{id:id(),listing_id:listing.id,user_id:user?.id||null,name:String(d.name).slice(0,90),phone:String(d.phone),scheduled_at:when.toISOString(),status:'pending'})});}
- if(route==='/api/admin/summary'&&method==='GET'){if(!await hasPermission(user,'dashboard_view'))throw error(403,'غير مصرح بلوحة الإدارة');const listings=(await rows('listings')).filter(x=>canManage(user,x)||(x.created_by&&x.created_by===user.id));const listingIds=new Set(listings.map(x=>x.id));const leads=(await rows('leads')).filter(x=>listingIds.has(x.listing_id));const appointments=(await rows('appointments')).filter(x=>listingIds.has(x.listing_id));const users=user.role==='superadmin'?await rows('users'):[];return json(res,200,{listings:listings.length,leads:leads.length,appointments:appointments.length,users:users.length,recentLeads:leads.slice(-15).reverse(),recentAppointments:appointments.slice(-15).reverse()});}
- if(route==='/api/admin/staff'&&method==='POST'){guard(user,['superadmin']);const d=await body(req),email=String(d.email||'').trim().toLowerCase();if(!['agency_admin','broker'].includes(d.role)||!/^\S+@\S+\.\S+$/.test(email)||String(d.password||'').length<10||String(d.name||'').length<2)throw error(400,'البيانات غير صالحة');if(await getUser(email))throw error(409,'البريد مستخدم');let orgId=String(d.org_id||'').trim();if(!orgId){orgId=id();await insert('organizations',{id:orgId,name:String(d.organization||'New Agency').slice(0,100)});}else{let org=pool?(await pool.query('SELECT * FROM organizations WHERE id=$1',[orgId])).rows[0]:memory.organizations.find(o=>o.id===orgId);if(!org)throw error(400,'الشركة غير موجودة');}const u=await insert('users',{id:id(),name:String(d.name).slice(0,90),email,pass_hash:makePassword(String(d.password)),role:d.role,org_id:orgId});return json(res,201,{user:safeUser(u)});}
- if(route==='/api/assistant'&&method==='POST'){const d=await body(req);const all=(await rows('listings')).filter(x=>x.status==='published');const t=String(d.message||'').slice(0,400).toLowerCase();const maxMatch=t.match(/(\d[\d,]*)\s*(?:مليون|million)/);const max=maxMatch?Number(maxMatch[1].replaceAll(',',''))*1e6:null;let picks=all.filter(x=>(!max||Number(x.price)<=max)&&(!/إيجار|rent/.test(t)||x.transaction==='إيجار')&&(!/فيلا|villa/.test(t)||x.kind==='فيلا')&&(!/شقة|apartment/.test(t)||x.kind==='شقة')).slice(0,3);return json(res,200,{message:picks.length?'لقيت لك اختيارات مبدئية حسب المعايير المكتوبة. يمكنك فتح تفاصيل كل عقار للمقارنة.':'لم أجد عقارات مطابقة حاليًا؛ جرّب توسيع شروط البحث.',items:picks,notice:'ترشيحات تجريبية بقواعد بحث، وليست نموذج ذكاء اصطناعي توليديًا.'});}
- throw error(404,'الرابط غير موجود');
-}
-const mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon','.json':'application/json','.webmanifest':'application/manifest+json'};
-const server=http.createServer(async(req,res)=>{
- try{
-  const u=new URL(req.url,'http://localhost');
-  if(req.method==='OPTIONS'){res.writeHead(204,{'Allow':'GET, POST, PATCH, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'});return res.end();}
-  const origin=req.headers.origin,allowed=process.env.ALLOWED_ORIGIN;
-  if(prod&&origin&&allowed&&origin!==allowed)throw error(403,'Origin not allowed');
-  if(u.pathname.startsWith('/api/'))return await api(req,res,u);
-  if(req.method!=='GET'&&req.method!=='HEAD')throw error(405,'Method not allowed');
-  let rel=decodeURIComponent(u.pathname);if(rel==='/'||rel==='/index.html')rel='/index.html';
-  const file=path.resolve(publicDir,'.'+rel);
-  if(!file.startsWith(publicDir+path.sep))throw error(403,'Forbidden');
-  let data;try{data=await fs.readFile(file);}catch{return json(res,404,{error:'Not found'});}
-  res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; img-src 'self' https://images.unsplash.com data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"});res.end(req.method==='HEAD'?undefined:data);
- }catch(e){if((e.code||'')==='23505')return json(res,409,{error:'البيانات مسجلة بالفعل'});console.error(e.status?e.message:e);return json(res,e.status||500,{error:e.status?e.message:'خطأ داخلي في الخادم'});}
-});
-server.listen(port,'0.0.0.0',()=>console.log(`SakanGo listening on ${port} (${pool?'PostgreSQL':'local demo'})`));
-+(keys.length+2)+' RETURNING *';
-  const item=(await pool.query(query,[...values,match[2],org])).rows[0];
-  return json(res,200,{item});
- }
- throw error(405,'الطريقة غير مدعومة');
+ throw error(405,'غير مدعوم');
 }
 async function api(req,res,url){
  const route=url.pathname,method=req.method,user=await principal(req);
+ if(route.startsWith('/api/modules/'))return await moduleApi(req,res,route,user);
  if(route==='/api/health')return json(res,200,{ok:true,service:'SakanGo',database:pool?'postgres':'development-demo'});
  if(route==='/api/me')return json(res,200,{user:user?{...safeUser(user),permissions:{dashboard:await hasPermission(user,'dashboard_view'),reports:await hasPermission(user,'reports_view')}}:null});
 
