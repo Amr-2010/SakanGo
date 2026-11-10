@@ -9,8 +9,9 @@ const here=path.dirname(fileURLToPath(import.meta.url));
 const publicDir=path.resolve(here,'../web');
 const prod=process.env.NODE_ENV==='production';
 const port=Number(process.env.PORT||10000);
-const secret=process.env.JWT_SECRET || (!prod?'development-only-change-before-deploy':null);
-if(prod && (!process.env.DATABASE_URL || !secret || secret.length<40 || !process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD)){
+const demoMode=process.env.DEMO_MODE==='true';
+const secret=process.env.JWT_SECRET || (demoMode?crypto.randomBytes(48).toString('hex'):(!prod?'development-only-change-before-deploy':null));
+if(prod && !demoMode && (!process.env.DATABASE_URL || !secret || secret.length<40 || !process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD)){
  console.error('Production requires DATABASE_URL, JWT_SECRET (40+ chars), ADMIN_EMAIL, ADMIN_PASSWORD.');process.exit(1);
 }
 const id=()=>crypto.randomUUID();
@@ -24,7 +25,7 @@ const sample=[
 ];
 let pool=null;
 const memory={users:[],listings:sample,leads:[],appointments:[],favorites:[],organizations:[{id:'demo-org',name:'SakanGo Demo'}]};
-if(process.env.DATABASE_URL){
+if(process.env.DATABASE_URL && !demoMode){
   const {Pool}=await import('pg');
   pool=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.PGSSLMODE==='require'?{rejectUnauthorized:true}:false,max:5,connectionTimeoutMillis:12000});
   await pool.query(`CREATE TABLE IF NOT EXISTS organizations(id TEXT PRIMARY KEY,name TEXT NOT NULL);
