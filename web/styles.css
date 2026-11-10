@@ -123,3 +123,5 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .footGrid .logo .brandLogo{width:170px;height:78px}
 @media(max-width:790px){.logo .brandLogo{width:115px;height:54px}.topbar .logo{min-width:0}}
 @media(max-width:520px){.logo .brandLogo{width:102px;height:49px}.topbar .logo{min-width:0}}
+
+.developerLogo{width:62px;height:62px;object-fit:contain;flex:none}.developerCredit{gap:14px}@media(max-width:520px){.developerLogo{width:52px;height:52px}}
