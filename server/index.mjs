@@ -54,7 +54,22 @@ async function insert(table,record){if(pool){const keys=Object.keys(record);cons
 async function update(table,recordId,changes){if(pool){const keys=Object.keys(changes),vals=Object.values(changes);return (await pool.query(`UPDATE ${table} SET ${keys.map((k,i)=>`${k}=$${i+1}`).join(',')} WHERE id=$${keys.length+1} RETURNING *`,[...vals,recordId])).rows[0];}let x=memory[table].find(y=>y.id===recordId);if(x)Object.assign(x,changes);return x;}
 async function getUser(email){if(pool)return (await pool.query('SELECT * FROM users WHERE email=$1',[email])).rows[0];return memory.users.find(u=>u.email===email);}
 async function byId(table,pk){if(pool)return (await pool.query(`SELECT * FROM ${table} WHERE id=$1`,[pk])).rows[0];return memory[table].find(x=>x.id===pk);}
-async function ensureAdmin(){const email=process.env.ADMIN_EMAIL?.trim().toLowerCase(),password=process.env.ADMIN_PASSWORD;if(!email||!password)return;const existing=await getUser(email);if(existing)return;let org=await (pool?pool.query('SELECT * FROM organizations WHERE id=$1',['sakango-root']).then(r=>r.rows[0]):Promise.resolve(memory.organizations.find(x=>x.id==='sakango-root')));if(!org)org=await insert('organizations',{id:'sakango-root',name:'SakanGo'});await insert('users',{id:id(),name:'System Administrator',email,pass_hash:makePassword(password),role:'superadmin',org_id:org.id});console.log('Superadmin provisioned.');}
+async function ensureAdmin(){const email=process.env.ADMIN_EMAIL?.trim().toLowerCase(),password=process.env.ADMIN_PASSWORD;if(!email||!password)return;const existing=await getUser(email);
+ if(existing){
+   // Only the explicitly configured bootstrap email may be reconciled.
+   // Keep the unique superadmin role attached to that email and align its password
+   // with the protected Render environment variable.
+   if(existing.role!=='superadmin'){
+     const other=pool?(await pool.query("SELECT id FROM users WHERE role='superadmin' AND id<>$1 LIMIT 1",[existing.id])).rows[0]:memory.users.find(u=>u.role==='superadmin'&&u.id!==existing.id);
+     if(other)throw new Error('Another superadmin already exists; manual account review required.');
+   }
+   const changes={};
+   if(existing.role!=='superadmin')changes.role='superadmin';
+   if(!checkPassword(password,existing.pass_hash))changes.pass_hash=makePassword(password);
+   if(Object.keys(changes).length)await update('users',existing.id,changes);
+   console.log('Configured superadmin account verified.');
+   return;
+ }let org=await (pool?pool.query('SELECT * FROM organizations WHERE id=$1',['sakango-root']).then(r=>r.rows[0]):Promise.resolve(memory.organizations.find(x=>x.id==='sakango-root')));if(!org)org=await insert('organizations',{id:'sakango-root',name:'SakanGo'});await insert('users',{id:id(),name:'System Administrator',email,pass_hash:makePassword(password),role:'superadmin',org_id:org.id});console.log('Superadmin provisioned.');}
 await ensureAdmin();
 const json=(res,status,obj)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(obj));};
 const error=(status,message)=>Object.assign(new Error(message),{status});
