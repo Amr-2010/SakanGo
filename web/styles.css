@@ -308,3 +308,34 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 }
 @media(max-width:355px){.moduleGrid{grid-template-columns:1fr}.moduleCard{min-height:0}}
 @media(prefers-reduced-motion:reduce){.moduleCard{transition:none}}
+
+/* Mobile CTA and footer alignment — remove empty vertical space */
+@media(max-width:790px){
+  .appBanner{display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;gap:18px;padding:30px 20px;margin-top:28px;margin-bottom:24px;min-height:0}
+  .appBanner>div{width:100%;max-width:520px;margin:0 auto;text-align:center}
+  .appBanner h2,.appBanner p,.appBanner>div>span{text-align:center;margin-left:auto;margin-right:auto}
+  .appBanner h2{line-height:1.5}
+  .appBanner .btn{align-self:center;margin:0 auto;min-height:48px}
+  footer{padding:24px 0 calc(98px + env(safe-area-inset-bottom,0px));}
+  footer .footGrid{display:flex;flex-direction:column;align-items:center;
+    justify-content:center;text-align:center;gap:12px}
+  footer .footGrid .logo{display:flex;justify-content:center;width:100%;margin:0 auto}
+  footer .footGrid .logo .brandLogo{display:block;margin:0 auto;width:145px;height:auto;max-height:84px;object-fit:contain}
+  footer .footGrid p,footer .footGrid>span{width:100%;max-width:430px;
+    margin:0 auto;text-align:center;line-height:1.7}
+  footer .developerCredit{display:flex;flex-direction:column;align-items:center;
+    justify-content:center;text-align:center;gap:9px;margin-top:16px;padding:16px 0 0}
+  footer .developerCredit .developerLogo{order:0;display:block;margin:0 auto;width:64px;height:64px;object-fit:contain}
+  footer .developerCredit>span{order:1;display:block;text-align:center;margin:0 auto}
+  footer .developerCredit small{text-align:center}
+}
+@media(max-width:520px){
+  .appBanner{padding:27px 16px;gap:15px;margin-top:22px;margin-bottom:18px;border-radius:24px}
+  .appBanner h2{font-size:clamp(23px,6vw,29px)}
+  .appBanner p{font-size:13px;line-height:1.8}
+  footer .footGrid{gap:10px}
+  footer .footGrid .logo .brandLogo{width:132px}
+  footer .footGrid p{font-size:12px}
+  footer .developerCredit{margin-top:13px}
+}
