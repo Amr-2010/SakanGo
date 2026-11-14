@@ -417,7 +417,7 @@ public sealed class Db {
         var cols=o.Select(k=>k.Key).ToArray();
         if(cols.Any(c=>!Regex.IsMatch(c,@"^[a-z_]+$")))throw new ApiError(400,"Invalid column");
         var vals=o.Select(k=>Unpack(k.Value)).ToArray();
-        var sql=$"INSERT INTO {table} AS t ({string.Join(",",cols)}) VALUES ({string.Join(",",cols.Select((_,i)=>"@p"+i))}) RETURNING row_to_json(t)::text";
+        var sql=$"INSERT INTO {table} AS t ({string.Join(",",cols)}) VALUES ({string.Join(",",cols.Select((col,i)=>TypedParam(table,col,i)))}) RETURNING row_to_json(t)::text";
         var result=await Value(sql,vals);return JsonNode.Parse(Convert.ToString(result)!)!.AsObject();
     }
     public async Task<JsonObject> Update(string table,string id,JsonObject o){
@@ -425,8 +425,23 @@ public sealed class Db {
         var cols=o.Select(k=>k.Key).ToArray();
         if(cols.Any(c=>!Regex.IsMatch(c,@"^[a-z_]+$")))throw new ApiError(400,"Invalid column");
         var vals=o.Select(k=>Unpack(k.Value)).ToList();vals.Add(id);
-        var sql=$"UPDATE {table} AS t SET {string.Join(",",cols.Select((c,i)=>c+"=@p"+i))} WHERE id=@p{cols.Length} RETURNING row_to_json(t)::text";
+        var sql=$"UPDATE {table} AS t SET {string.Join(",",cols.Select((c,i)=>c+"="+TypedParam(table,c,i)))} WHERE id=@p{cols.Length} RETURNING row_to_json(t)::text";
         var result=await Value(sql,vals.ToArray());return JsonNode.Parse(Convert.ToString(result)!)!.AsObject();
+    }
+    static string TypedParam(string table,string column,int index){
+        var type=(table,column) switch{
+            ("appointments","scheduled_at")=>"timestamptz",
+            ("rental_contracts","start_date") or ("rental_contracts","end_date")=>"date",
+            ("rent_payments","due_date")=>"date",
+            ("rent_payments","paid_at")=>"timestamptz",
+            ("listings","price") or ("project_units","price") or ("crm_deals","amount")
+             or ("broker_referrals","commission_rate") or ("broker_referrals","commission_amount")
+             or ("rental_contracts","rent_amount") or ("rent_payments","amount")=>"numeric",
+            ("listings","rooms") or ("listings","baths") or ("listings","size")
+             or ("featured_requests","duration_days")=>"integer",
+            _=>null
+        };
+        return "@p"+index+(type is null?"":"::"+type);
     }
     static readonly HashSet<string> SafeTables=new(new[]{"users","organizations","account_profiles","account_applications","listings","leads","appointments","favorites","featured_requests","projects","project_units","crm_contacts","crm_deals","broker_referrals","rental_contracts","maintenance_tickets","rent_payments"});
     static object Unpack(JsonNode? n) {
