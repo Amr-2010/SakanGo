@@ -39,8 +39,13 @@ jobs:
             sleep 1
           done
           python3 -c 'import json; d=json.load(open("/tmp/account-types.json")); assert "customer" in d["types"]'
-          curl -fsS http://localhost:10000/ > /tmp/index.html
-          grep -q "SakanGo" /tmp/index.html
+          curl -fsSL --max-redirs 3 -D /tmp/index.headers http://localhost:10000/ > /tmp/index.html
+          if ! grep -qi "sakango" /tmp/index.html; then
+            cat /tmp/index.headers
+            head -c 1000 /tmp/index.html
+            docker logs sakango-smoke
+            exit 1
+          fi
           docker rm -f sakango-smoke
       - name: PostgreSQL compatibility smoke test
         env:
