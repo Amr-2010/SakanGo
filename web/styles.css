@@ -251,3 +251,10 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
  .developerCredit{text-align:center;justify-content:center;flex-wrap:wrap}
  .footGrid .logo{justify-content:center}
 }
+
+/* Listing photos: real image elements instead of fragile inline background URLs */
+.propertyPhoto,.detailsPhoto{overflow:hidden;background-color:#d6e3f1}
+.propertyPhoto .listing-photo-img,.detailsPhoto .listing-photo-img{display:block;width:100%;height:100%;object-fit:cover;object-position:center;position:absolute;inset:0}
+.detailsPhoto{position:relative}
+.propertyPhoto.image-unavailable,.detailsPhoto.image-unavailable{background:linear-gradient(135deg,#d7e5f4,#b4cce2)}
+.propertyPhoto .pill,.propertyPhoto .heart{z-index:2}
