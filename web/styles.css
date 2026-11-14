@@ -131,3 +131,107 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 
 /* Branded loading screen, shared by web and installed PWA */
 .startupSplash{position:fixed;inset:0;z-index:99999;display:grid;place-items:center;background:linear-gradient(160deg,#f9fcff 0%,#eaf4ff 60%,#dceaff 100%);transition:opacity .3s ease,visibility .3s ease}.splashInner{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:20px;text-align:center;padding:24px}.splashLogo{display:block;width:min(76vw,320px);max-height:230px;object-fit:contain;animation:splashEnter .5s ease both}.splashSpinner{width:34px;height:34px;border:3px solid #c8d9f4;border-top-color:#155de2;border-radius:50%;animation:splashSpin .85s linear infinite}.splashInner p{margin:0;color:#27518b;font-weight:700;font-size:15px}.startupSplash.splashDone{opacity:0;visibility:hidden;pointer-events:none}@keyframes splashSpin{to{transform:rotate(360deg)}}@keyframes splashEnter{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:scale(1)}}@media(prefers-reduced-motion:reduce){.splashLogo,.splashSpinner{animation:none}.startupSplash{transition:none}}
+
+
+/* Mobile experience refresh — 2026-11-14. Presentation-only; existing IDs and API untouched. */
+@media (max-width:790px){
+ html{scroll-padding-top:74px}
+ body{background:#f7faff;padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+ .shell{width:calc(100% - 28px);max-width:620px}
+ .topbar{height:68px;box-shadow:0 3px 18px #173d7210}
+ .headerinner{gap:8px;min-width:0}
+ .topbar .logo .brandLogo{width:108px;height:51px}
+ .topbar .actions{gap:5px;min-width:0}
+ .topbar .actions .btn{padding:0 10px;min-height:38px;font-size:11px}
+ .topbar .actions .iconbtn{min-width:34px;height:36px;font-size:18px}
+ .topbar #favoritesBtn{display:none}
+ .hero{height:auto;display:flex;flex-direction:column;align-items:stretch;gap:16px;padding-top:24px}
+ .heroText{padding:0}
+ .eyebrow{font-size:11px;padding:8px 11px}
+ .hero h1{font-size:clamp(30px,8vw,43px);line-height:1.3;margin:12px 0}
+ .hero p{font-size:14px;line-height:1.85;margin:0}
+ .heroTrust{display:flex;flex-wrap:wrap;gap:7px;margin-top:14px}
+ .heroTrust span{background:#eaf2ff;border-radius:999px;padding:7px 10px;font-size:10px}
+ .heroVisual{height:205px;width:100%;flex:none}
+ .heroImg{border-radius:22px;box-shadow:0 12px 28px #163c6b20}
+ .floating{display:none}
+ .searchwrap{margin-top:16px}
+ .searchbox{padding:15px;border-radius:20px;box-shadow:0 12px 35px #16488b12}
+ .searchTabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+ .searchTabs button{padding:11px 4px;font-size:12px}
+ .searchFields{grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
+ .searchFields label:first-child,.searchAction{grid-column:1/-1}
+ .searchFields label{min-width:0}
+ .searchFields input,.searchFields select,.filters input,.filters select{font-size:16px;min-width:0}
+ .searchAction{width:100%;min-height:48px;border-radius:12px}
+ .featureSection{padding-top:38px;padding-bottom:35px}
+ .sectionHeader{align-items:start;gap:10px;flex-wrap:wrap}
+ .sectionHeader h2,.why h2{font-size:24px;line-height:1.4}
+ .sectionHeader p{font-size:12px}
+ .propertyGrid,.resultsLayout .propertyGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+ .propertyCard{min-width:0;border-radius:17px;box-shadow:0 5px 18px #193b6810}
+ .propertyPhoto{height:150px}
+ .cardBody{padding:12px}
+ .price{font-size:16px;overflow-wrap:anywhere}
+ .cardBody h3{font-size:13px;line-height:1.55}
+ .place{font-size:11px}
+ .features{flex-wrap:wrap;gap:7px;font-size:10px}
+ .why{display:block;padding:18px 0 35px}
+ .whyIntro{margin-bottom:20px}
+ .whyCards{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+ .whyCards article{padding:15px;border-radius:15px}
+ .whyCards h3{font-size:14px}
+ .whyCards p{font-size:11px}
+ .moduleSection{padding:25px 0}
+ .moduleGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+ .moduleCard{padding:15px;border-radius:16px;gap:8px}
+ .moduleCard h3{font-size:14px}
+ .moduleCard p{font-size:11px;line-height:1.7}
+ .moduleIcon{width:39px;height:39px;font-size:22px}
+ .moduleStatus{font-size:10px}
+ .platformTools{padding:12px 0 28px}
+ .toolGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+ .appBanner{padding:24px;margin-bottom:30px;min-height:0;border-radius:20px;flex-direction:column;align-items:stretch}
+ .appBanner h2{font-size:23px}
+ .appBanner .btn{align-self:stretch}
+ .internal{padding-top:24px;padding-bottom:42px}
+ .pageHeading h1{font-size:25px}
+ .resultsLayout{grid-template-columns:minmax(0,1fr);gap:16px;margin-top:18px}
+ .filters{padding:16px;gap:11px;grid-template-columns:repeat(2,minmax(0,1fr));border-radius:17px}
+ .filters h3,.filters #clearFilters{grid-column:1/-1}
+ .filters label{min-width:0}
+ .dashboardStats{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:18px 0}
+ .stat{padding:15px;border-radius:16px}
+ .stat b{font-size:23px}
+ .adminColumns{grid-template-columns:minmax(0,1fr);gap:14px}
+ .panel{margin-bottom:14px;border-radius:17px;background:white}
+ .panelTop{padding:14px;gap:8px;flex-wrap:wrap}
+ .panelTop h3{font-size:14px}
+ .tableWrap{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+ .dataTable{min-width:520px}
+ .adminActions{flex-wrap:wrap}
+ .modal{padding:10px;align-items:end}
+ .modalPanel{width:100%;max-height:90dvh;border-radius:22px 22px 12px 12px;padding:24px 16px calc(22px + env(safe-area-inset-bottom,0px))}
+ .formGrid.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .formGrid label{min-width:0}
+ .footGrid{flex-direction:column;gap:12px;text-align:center}
+ .developerCredit{padding-bottom:24px}
+ .mobileNav{padding-bottom:env(safe-area-inset-bottom,0px);box-shadow:0 -8px 24px #183d751a}
+ .mobileNav a,.mobileNav button{min-width:0}
+ .chatLauncher{bottom:calc(86px + env(safe-area-inset-bottom,0px));left:14px;width:46px;height:46px;padding:0;display:grid;place-items:center;overflow:hidden;white-space:nowrap;font-size:20px}
+ .chatLauncher span{display:none}
+ .adSlot{margin-top:10px;margin-bottom:10px}
+ .adSlotInner{padding:12px 14px;border-radius:14px}
+}
+@media(max-width:390px){
+ .shell{width:calc(100% - 22px)}
+ .topbar .logo .brandLogo{width:87px;height:44px}
+ .topbar .actions .btn{font-size:10px;padding:0 7px}
+ .topbar .actions .iconbtn{min-width:29px}
+ .propertyGrid,.resultsLayout .propertyGrid{grid-template-columns:minmax(0,1fr)}
+ .propertyPhoto{height:205px}
+ .moduleGrid{grid-template-columns:minmax(0,1fr)}
+ .filters{grid-template-columns:minmax(0,1fr)}
+ .filters h3,.filters #clearFilters{grid-column:auto}
+ .formGrid.two{grid-template-columns:minmax(0,1fr)}
+}
