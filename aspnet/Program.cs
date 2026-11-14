@@ -336,7 +336,12 @@ app.MapMethods("/api/modules/{module}",new[]{"GET","POST"},async(string module,H
     }
     return Results.Json(new {item=await db.Insert(def.Table,item)},statusCode:201);
 });
-app.MapFallback((HttpContext ctx)=> Results.Redirect("/"));
+app.MapFallback((HttpContext ctx)=>{
+    if(ctx.Request.Path.StartsWithSegments("/api"))
+        return Results.Json(new {error="الرابط غير موجود"},statusCode:404);
+    var homepage=Path.Combine(app.Environment.ContentRootPath,"wwwroot","index.html");
+    return File.Exists(homepage)?Results.File(homepage,"text/html; charset=utf-8"):Results.NotFound();
+});
 app.Run();
 
 public static class Helpers {
