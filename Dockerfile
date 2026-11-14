@@ -1,9 +1,11 @@
-FROM node:22-alpine
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /source
+COPY aspnet/ ./aspnet/
+RUN dotnet publish aspnet/SakanGo.Api.csproj -c Release -o /out
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
-COPY package.json ./
-RUN npm install --omit=dev
-COPY server ./server
-COPY web ./web
-ENV NODE_ENV=production
+COPY --from=build /out/ ./
+COPY web/ ./wwwroot/
+ENV ASPNETCORE_URLS=http://0.0.0.0:10000
 EXPOSE 10000
-CMD ["node", "server/index.mjs"]
+ENTRYPOINT ["dotnet","SakanGo.Api.dll"]
