@@ -380,7 +380,7 @@ public sealed class Db {
         var user=uri.UserInfo.Split(':',2);
         _conn=new NpgsqlConnectionStringBuilder{Host=uri.Host,Port=uri.Port>0?uri.Port:5432,
           Database=Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/')),Username=Uri.UnescapeDataString(user[0]),
-          Password=user.Length>1?Uri.UnescapeDataString(user[1]):"",SslMode=SslMode.Require}.ConnectionString;
+          Password=user.Length>1?Uri.UnescapeDataString(user[1]):"",SslMode=Environment.GetEnvironmentVariable("PGSSLMODE")=="disable"?SslMode.Disable:SslMode.Require}.ConnectionString;
     }
     public async Task<NpgsqlConnection> Open(){
         if(!Available)throw new ApiError(503,"قاعدة البيانات غير متصلة");
