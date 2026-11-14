@@ -25,3 +25,14 @@ after=json.load(open('/tmp/new-listings.json'))['items']
 assert len(before)==len(after) and len(after)>=6, (len(before),len(after))
 print('Database property parity confirmed:',len(after))
 PY
+
+curl -fsS -H 'Content-Type: application/json' \
+  -d '{"listing_id":"demo-1","name":"Sample Customer","phone":"01000000000","message":"Test request"}' \
+  http://127.0.0.1:10000/api/leads >/tmp/dotnet-lead.json
+python3 - <<'PY'
+import json
+lead=json.load(open('/tmp/dotnet-lead.json'))['item']
+assert lead['listing_id']=='demo-1'
+assert lead['status']=='new'
+print('PASS: .NET PostgreSQL lead insertion')
+PY
