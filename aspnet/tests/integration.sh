@@ -36,3 +36,14 @@ assert lead['listing_id']=='demo-1'
 assert lead['status']=='new'
 print('PASS: .NET PostgreSQL lead insertion')
 PY
+
+curl -fsS -H 'Content-Type: application/json' \
+  -d '{"listing_id":"demo-1","name":"Sample Customer","phone":"01000000000","scheduled_at":"2099-06-01T10:00:00Z"}' \
+  http://127.0.0.1:10000/api/appointments >/tmp/dotnet-appointment.json
+python3 - <<'PY'
+import json
+visit=json.load(open('/tmp/dotnet-appointment.json'))['item']
+assert visit['listing_id']=='demo-1'
+assert visit['status']=='pending'
+print('PASS: .NET PostgreSQL appointment insertion')
+PY
