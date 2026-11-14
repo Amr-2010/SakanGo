@@ -1,0 +1,60 @@
+name: ASP.NET Core migration build
+on:
+  push:
+    branches: [aspnet-core-migration]
+  pull_request:
+    paths: ['aspnet/**', '.github/workflows/aspnet-build.yml']
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sakango_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: dotnet restore aspnet/SakanGo.Api.csproj
+      - run: dotnet build aspnet/SakanGo.Api.csproj --configuration Release --no-restore
+      - run: docker build -f aspnet/Dockerfile -t sakango-aspnet:ci .
+      - name: Smoke test ASP.NET Core container HTTP routes
+        run: |
+          docker run -d --name sakango-smoke -p 10000:10000 sakango-aspnet:ci
+          for i in $(seq 1 20); do
+            if curl -fsS http://localhost:10000/api/account/types > /tmp/account-types.json; then break; fi
+            sleep 1
+          done
+          python3 -c 'import json; d=json.load(open("/tmp/account-types.json")); assert "customer" in d["types"]'
+          curl -fsSL --max-redirs 3 -D /tmp/index.headers http://localhost:10000/ > /tmp/index.html
+          if ! grep -qi "sakango" /tmp/index.html; then
+            cat /tmp/index.headers
+            head -c 1000 /tmp/index.html
+            docker logs sakango-smoke
+            exit 1
+          fi
+          docker rm -f sakango-smoke
+      - name: PostgreSQL compatibility smoke test
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/sakango_test
+          PGSSLMODE: disable
+          PORT: '10000'
+          ADMIN_EMAIL: admin@example.test
+          ADMIN_PASSWORD: SamplePasswordOnlyForCI123
+          JWT_SECRET: example-jwt-key-ci-testing-only-not-production-12345678901234567890
+        run: |
+          npm install --omit=dev
+          bash aspnet/tests/integration.sh
