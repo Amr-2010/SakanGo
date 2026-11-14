@@ -222,3 +222,32 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
  .moduleCard{padding:11px}
  .moduleCard p{font-size:10px}
 }
+
+
+/* Approved infographic mobile layout: centered, compact app UI */
+@media(max-width:790px){
+ .heroText,.heroText h1,.heroText p,.heroTrust,.sectionHeader,.whyIntro,.pageHeading{text-align:center}
+ .heroTrust{justify-content:center}
+ .heroText .eyebrow{justify-content:center}
+ .sectionHeader{justify-content:center;align-items:center}
+ .sectionHeader>div{width:100%;text-align:center}
+ .sectionHeader .seeAll{margin-inline:auto}
+ .whyIntro .btn{margin-inline:auto}
+ .moduleCard{align-items:center;text-align:center}
+ .moduleCard h3,.moduleCard h3 small{text-align:center}
+ .moduleIcon{margin-inline:auto}
+ .toolGrid>a,.toolGrid>button{text-align:center}
+ .appBanner{text-align:center}
+ .appBanner .btn{margin-inline:auto}
+ .propertyCard .cardBody{text-align:center}
+ .propertyCard .features{justify-content:center}
+ .propertyCard .price{text-align:center}
+ .propertyCard .place{text-align:center}
+ .searchFields label{text-align:right}
+ .searchTabs button{font-weight:700}
+ .mobileNav{z-index:70}
+ .mobileNav a,.mobileNav button{color:#41638e}
+ .mobileNav a.active,.mobileNav a:focus-visible{color:#0754c9}
+ .developerCredit{text-align:center;justify-content:center;flex-wrap:wrap}
+ .footGrid .logo{justify-content:center}
+}
