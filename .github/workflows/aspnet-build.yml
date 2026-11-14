@@ -15,3 +15,14 @@ jobs:
       - run: dotnet restore aspnet/SakanGo.Api.csproj
       - run: dotnet build aspnet/SakanGo.Api.csproj --configuration Release --no-restore
       - run: docker build -f aspnet/Dockerfile -t sakango-aspnet:ci .
+      - name: Smoke test ASP.NET Core container HTTP routes
+        run: |
+          docker run -d --name sakango-smoke -p 10000:10000 sakango-aspnet:ci
+          for i in $(seq 1 20); do
+            if curl -fsS http://localhost:10000/api/account/types > /tmp/account-types.json; then break; fi
+            sleep 1
+          done
+          python3 -c 'import json; d=json.load(open("/tmp/account-types.json")); assert "customer" in d["types"]'
+          curl -fsS http://localhost:10000/ > /tmp/index.html
+          grep -q "SakanGo" /tmp/index.html
+          docker rm -f sakango-smoke
