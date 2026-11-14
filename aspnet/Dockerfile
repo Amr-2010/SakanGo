@@ -1,9 +1,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /source
-COPY aspnet/SakanGo.Api.csproj aspnet/
-RUN dotnet restore aspnet/SakanGo.Api.csproj
-COPY aspnet/ aspnet/
-RUN dotnet publish aspnet/SakanGo.Api.csproj -c Release -o /out --no-restore
+COPY aspnet/ ./aspnet/
+RUN dotnet publish aspnet/SakanGo.Api.csproj -c Release -o /out
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 COPY --from=build /out/ ./
