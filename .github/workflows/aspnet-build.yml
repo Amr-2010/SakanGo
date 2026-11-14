@@ -7,11 +7,27 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sakango_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - run: dotnet restore aspnet/SakanGo.Api.csproj
       - run: dotnet build aspnet/SakanGo.Api.csproj --configuration Release --no-restore
       - run: docker build -f aspnet/Dockerfile -t sakango-aspnet:ci .
@@ -26,3 +42,14 @@ jobs:
           curl -fsS http://localhost:10000/ > /tmp/index.html
           grep -q "SakanGo" /tmp/index.html
           docker rm -f sakango-smoke
+      - name: PostgreSQL compatibility smoke test
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/sakango_test
+          PGSSLMODE: disable
+          PORT: '10000'
+          ADMIN_EMAIL: admin@example.test
+          ADMIN_PASSWORD: SamplePasswordOnlyForCI123
+          JWT_SECRET: example-jwt-key-ci-testing-only-not-production-12345678901234567890
+        run: |
+          npm install --omit=dev
+          bash aspnet/tests/integration.sh
