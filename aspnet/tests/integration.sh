@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+node server/index.mjs > /tmp/sakango-old.log 2>&1 &
+pid=$!
+trap 'kill "$pid" 2>/dev/null || true; docker rm -f sakango-ci >/dev/null 2>&1 || true' EXIT
+for i in $(seq 1 40); do
+  curl -fsS http://127.0.0.1:10000/api/health >/tmp/old-health.json 2>/dev/null && break
+  sleep 1
+done
+test -s /tmp/old-health.json || { cat /tmp/sakango-old.log; exit 1; }
+curl -fsS http://127.0.0.1:10000/api/listings >/tmp/old-listings.json
+kill "$pid"
+wait "$pid" 2>/dev/null || true
+docker run -d --name sakango-ci --network host -e DATABASE_URL -e PGSSLMODE -e JWT_SECRET sakango-aspnet:ci
+for i in $(seq 1 40); do
+  curl -fsS http://127.0.0.1:10000/api/health >/tmp/new-health.json 2>/dev/null && break
+  sleep 1
+done
+test -s /tmp/new-health.json || { docker logs sakango-ci; exit 1; }
+curl -fsS http://127.0.0.1:10000/api/listings >/tmp/new-listings.json
+python3 - <<'PY'
+import json
+before=json.load(open('/tmp/old-listings.json'))['items']
+after=json.load(open('/tmp/new-listings.json'))['items']
+assert len(before)==len(after) and len(after)>=6, (len(before),len(after))
+print('Database property parity confirmed:',len(after))
+PY
