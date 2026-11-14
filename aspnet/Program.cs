@@ -1,3 +1,5 @@
+using static Helpers;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -337,7 +339,8 @@ app.MapMethods("/api/modules/{module}",new[]{"GET","POST"},async(string module,H
 app.MapFallback((HttpContext ctx)=> Results.Redirect("/"));
 app.Run();
 
-static async Task<JsonObject> Body(HttpRequest req,int limit=35000){
+public static class Helpers {
+public static async Task<JsonObject> Body(HttpRequest req,int limit=35000){
     if(req.ContentLength>limit)throw new ApiError(413,"الطلب كبير");
     using var input=new StreamReader(req.Body,Encoding.UTF8);
     var raw=await input.ReadToEndAsync();
@@ -345,25 +348,26 @@ static async Task<JsonObject> Body(HttpRequest req,int limit=35000){
     try {return JsonNode.Parse(string.IsNullOrWhiteSpace(raw)?"{}":raw) as JsonObject ?? throw new ApiError(400,"JSON غير صالح");}
     catch(JsonException){throw new ApiError(400,"JSON غير صالح");}
 }
-static string S(JsonNode? d,string key,string fallback=""){
+public static string S(JsonNode? d,string key,string fallback=""){
     if(d is not JsonObject o||!o.TryGetPropertyValue(key,out var n)||n is null)return fallback;
     if(n is JsonValue v){try{return v.ToString();}catch{return fallback;}}return fallback;
 }
-static decimal D(JsonNode? d,string key){return decimal.TryParse(S(d,key),System.Globalization.NumberStyles.Any,System.Globalization.CultureInfo.InvariantCulture,out var value)?value:0;}
-static bool B(JsonNode? d,string key){return bool.TryParse(S(d,key),out var v)&&v;}
-static bool ValidEmail(string v)=>Regex.IsMatch(v,@"^\S+@\S+\.\S+$")&&v.Length<320;
-static string SafeImage(string value)=>value.StartsWith("https://images.unsplash.com/",StringComparison.Ordinal)?value[..Math.Min(400,value.Length)]:"";
-static void CheckListing(JsonNode d){
+public static decimal D(JsonNode? d,string key){return decimal.TryParse(S(d,key),System.Globalization.NumberStyles.Any,System.Globalization.CultureInfo.InvariantCulture,out var value)?value:0;}
+public static bool B(JsonNode? d,string key){return bool.TryParse(S(d,key),out var v)&&v;}
+public static bool ValidEmail(string v)=>Regex.IsMatch(v,@"^\S+@\S+\.\S+$")&&v.Length<320;
+public static string SafeImage(string value)=>value.StartsWith("https://images.unsplash.com/",StringComparison.Ordinal)?value[..Math.Min(400,value.Length)]:"";
+public static void CheckListing(JsonNode d){
     foreach(var key in new[]{"title","city","area","kind","transaction"})
         if(string.IsNullOrWhiteSpace(S(d,key))||S(d,key).Length>150)throw new ApiError(400,"أدخل بيانات العقار كاملة");
     if(!new[]{"شقة","فيلا","دوبلكس","ستوديو","تجاري","أرض"}.Contains(S(d,"kind"))||!new[]{"بيع","إيجار"}.Contains(S(d,"transaction")))throw new ApiError(400,"نوع العقار أو المعاملة غير مدعوم");
     foreach(var key in new[]{"price","rooms","baths","size"})if(!decimal.TryParse(S(d,key),System.Globalization.NumberStyles.Any,System.Globalization.CultureInfo.InvariantCulture,out var n)||n<0||n>=1e13m)throw new ApiError(400,"الأرقام غير صالحة");
     if(D(d,"price")==0||D(d,"size")==0)throw new ApiError(400,"السعر والمساحة يجب أن يكونا أكبر من صفر");
 }
-static JsonObject Patch(JsonObject d,params string[] fields){
+public static JsonObject Patch(JsonObject d,params string[] fields){
     var result=new JsonObject();
     foreach(var key in fields)if(d.ContainsKey(key))result[key]=d[key]?.DeepClone();
     return result;
+}
 }
 public sealed class ApiError(int status,string message):Exception(message){public int Status{get;}=status;}
 public sealed class Db {
